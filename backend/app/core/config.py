@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     debug: bool = True
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
-    postgres_url: str | None = None
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/devopsmanager"
 
     model_config = SettingsConfigDict(
         env_file=".env",
