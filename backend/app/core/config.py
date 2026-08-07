@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,10 +9,10 @@ class Settings(BaseSettings):
     debug: bool = True
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/devopsmanager"
+    database_url: str
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(Path(__file__).resolve().parents[2] / ".env"),
         env_file_encoding="utf-8",
         extra="ignore"
     )
