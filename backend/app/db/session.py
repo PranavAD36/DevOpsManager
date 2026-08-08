@@ -4,15 +4,18 @@ from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.db.base import Base
+import app.models.core  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
 engine = create_async_engine(
     settings.database_url,
     echo=settings.debug,
+    poolclass=NullPool,
     future=True,
 )
 
