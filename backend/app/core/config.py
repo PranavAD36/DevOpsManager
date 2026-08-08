@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
     database_url: str
+    frontend_url: str = "http://localhost:3000"
+    supabase_url: str | None = None
+    supabase_publishable_key: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=str(Path(__file__).resolve().parents[2] / ".env"),
