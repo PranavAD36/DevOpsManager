@@ -1,14 +1,27 @@
 version: "3.9"
 
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: devopsmanager
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   backend:
     build:
       context: .
       dockerfile: docker/Dockerfile.backend
-    env_file:
-      - ./backend/.env.example
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/devopsmanager
     ports:
       - "8000:8000"
+    depends_on:
+      - db
     volumes:
       - ./backend:/app
 
@@ -17,10 +30,14 @@ services:
       context: .
       dockerfile: docker/Dockerfile.frontend
     environment:
-      NEXT_PUBLIC_API_URL: http://backend:8000
+      NEXT_PUBLIC_API_URL: http://localhost:8000
     ports:
       - "3000:3000"
-    volumes:
-      - ./frontend:/app
     depends_on:
       - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:

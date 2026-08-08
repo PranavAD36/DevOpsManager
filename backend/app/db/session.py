@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -6,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import settings
 from app.db.base import Base
+
+logger = logging.getLogger(__name__)
 
 engine = create_async_engine(
     settings.database_url,
@@ -21,10 +24,13 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 
-
 async def get_db_session() -> AsyncGenerator[AsyncSession, Any]:
     async with AsyncSessionLocal() as session:
-        yield session
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
 
 
 async def init_db() -> None:
@@ -37,5 +43,6 @@ async def check_database_health() -> bool:
         async with engine.connect() as connection:
             await connection.execute(text("SELECT 1"))
         return True
-    except Exception:
+    except Exception as exc:
+        logger.error("Database health check failed: %s", exc)
         return False
