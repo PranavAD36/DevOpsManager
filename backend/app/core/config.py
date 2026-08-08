@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
     github_token: str | None = None
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/devopsmanager"
+    database_url: str
 
     @field_validator("debug", mode="before")
     @classmethod

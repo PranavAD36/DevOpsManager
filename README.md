@@ -101,3 +101,13 @@ The focus is solely on a clean and extensible foundation.
    - npm run dev
 4. Alternatively, use Docker Compose:
    - docker compose up --build
+
+## Phase 3: GitHub Repository Integration
+
+Projects can connect public GitHub repositories from `/projects/{id}`. The backend validates the GitHub URL, fetches repository metadata through GitHub's REST API, stores it in Supabase PostgreSQL, and supports refresh through `POST /v1/repositories/{repository_id}/refresh`. `POST /v1/repositories/{repository_id}/analysis-runs` creates a pending analysis-run foundation without starting AI analysis.
+
+Optional backend configuration:
+
+- `GITHUB_TOKEN`: optional GitHub token for higher API rate limits. Leave blank for public repositories.
+
+The repository detail page is available at `/repositories/{id}`. Authentication is intentionally not required in this phase.

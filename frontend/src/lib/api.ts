@@ -54,6 +54,14 @@ export type Issue = {
   line_number: number | null;
 };
 
+type RepositoryInput = {
+  owner: string;
+  name: string;
+  full_name: string;
+  url: string;
+  default_branch?: string;
+};
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
@@ -69,7 +77,7 @@ export const api = {
   createProject: (payload: { name: string; description?: string }) => request<Project>('/v1/projects', { method: 'POST', body: JSON.stringify(payload) }),
   getProject: (id: string) => request<Project>(`/v1/projects/${id}`),
   listRepositories: (id: string) => request<Repository[]>(`/v1/projects/${id}/repositories`),
-  createRepository: (id: string, payload: Omit<Repository, 'id' | 'project_id' | 'provider' | 'is_active'>) => request<Repository>(`/v1/projects/${id}/repositories`, { method: 'POST', body: JSON.stringify(payload) }),
+  createRepository: (id: string, payload: RepositoryInput) => request<Repository>(`/v1/projects/${id}/repositories`, { method: 'POST', body: JSON.stringify(payload) }),
   connectRepository: (id: string, url: string) => request<Repository>(`/v1/projects/${id}/repositories/connect`, { method: 'POST', body: JSON.stringify({ url }) }),
   getRepository: (id: string) => request<Repository>(`/v1/repositories/${id}`),
   refreshRepository: (id: string) => request<Repository>(`/v1/repositories/${id}/refresh`, { method: 'POST' }),

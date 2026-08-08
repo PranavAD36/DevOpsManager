@@ -35,7 +35,14 @@ class GitHubRepositoryMetadata:
 
 def parse_github_repository_url(value: str) -> tuple[str, str]:
     parsed = urlparse(value.strip())
-    if parsed.scheme != "https" or parsed.netloc.lower() != "github.com":
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc.lower() != "github.com"
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
         raise ValueError("Repository URL must be an HTTPS GitHub URL")
 
     parts = [part for part in parsed.path.split("/") if part]
@@ -59,13 +66,16 @@ def _parse_datetime(value: str | None) -> datetime | None:
 class GitHubClient:
     base_url = "https://api.github.com"
 
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
     async def get_repository(self, owner: str, repo: str) -> GitHubRepositoryMetadata:
         headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
         if settings.github_token:
             headers["Authorization"] = f"Bearer {settings.github_token}"
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=15.0, transport=self.transport) as client:
                 response = await client.get(f"{self.base_url}/repos/{owner}/{repo}", headers=headers)
         except httpx.TimeoutException as exc:
             raise GitHubIntegrationError("GitHub request timed out", 504) from exc

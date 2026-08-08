@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -130,6 +130,7 @@ async def create_repository(project_id: UUID, payload: RepositoryCreate, session
 async def connect_github_repository(
     project_id: UUID,
     payload: RepositoryConnect,
+    response: Response,
     session: AsyncSession = Depends(get_db_session),
 ) -> Repository:
     await get_project_or_404(project_id, session)
@@ -150,10 +151,10 @@ async def connect_github_repository(
             Repository.full_name == metadata.full_name,
         )
     )
-    created = repository is None
     if repository is None:
         repository = Repository(project_id=project_id, owner=metadata.owner, name=metadata.name, full_name=metadata.full_name, url=metadata.html_url)
         session.add(repository)
+        response.status_code = status.HTTP_201_CREATED
     apply_github_metadata(repository, metadata)
     await session.commit()
     await session.refresh(repository)

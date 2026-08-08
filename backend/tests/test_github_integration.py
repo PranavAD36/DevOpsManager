@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
+import httpx
 from fastapi.testclient import TestClient
 
 from app.api.v1 import core_routes
@@ -42,6 +43,29 @@ def test_invalid_github_url_rejected() -> None:
         raise AssertionError("Expected invalid GitHub URL to be rejected")
 
 
+def test_github_metadata_service_with_mocked_http() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/repos/octocat/hello-world"
+        return httpx.Response(
+            200,
+            json={
+                "owner": {"login": "octocat"}, "name": "hello-world", "full_name": "octocat/hello-world",
+                "html_url": "https://github.com/octocat/hello-world", "description": "A test repository",
+                "default_branch": "main", "private": False, "fork": False, "language": "Python",
+                "stargazers_count": 10, "forks_count": 2, "open_issues_count": 1, "size": 100,
+                "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-02T00:00:00Z", "pushed_at": "2026-01-03T00:00:00Z",
+            },
+        )
+
+    async def run() -> None:
+        from app.integrations.github import GitHubClient
+        result = await GitHubClient(transport=httpx.MockTransport(handler)).get_repository("octocat", "hello-world")
+        assert result.full_name == "octocat/hello-world"
+
+    import asyncio
+    asyncio.run(run())
+
+
 def test_connect_duplicate_refresh_and_pending_analysis(monkeypatch) -> None:
     async def fake_metadata(owner: str, repo: str) -> GitHubRepositoryMetadata:
         assert owner == "octocat"
@@ -54,7 +78,7 @@ def test_connect_duplicate_refresh_and_pending_analysis(monkeypatch) -> None:
         project_id = project["id"]
         try:
             first = client.post(f"/v1/projects/{project_id}/repositories/connect", json={"url": "https://github.com/octocat/hello-world"})
-            assert first.status_code == 200
+            assert first.status_code == 201
             repository_id = first.json()["id"]
             second = client.post(f"/v1/projects/{project_id}/repositories/connect", json={"url": "https://github.com/octocat/hello-world.git"})
             assert second.status_code == 200
