@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
     github_token: str | None = None
+    github_app_id: int | None = None
+    github_client_id: str | None = None
+    github_client_secret: str | None = None
+    github_private_key_path: str | None = None
     database_url: str
 
     @field_validator("debug", mode="before")
@@ -25,6 +29,15 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment.lower() in ("production", "prod")
+
+    @property
+    def resolved_github_private_key_path(self) -> Path | None:
+        if not self.github_private_key_path:
+            return None
+        path = Path(self.github_private_key_path)
+        if path.is_absolute():
+            return path
+        return Path(__file__).resolve().parents[2] / path
 
     model_config = SettingsConfigDict(
         env_file=(
