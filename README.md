@@ -101,18 +101,3 @@ The focus is solely on a clean and extensible foundation.
    - npm run dev
 4. Alternatively, use Docker Compose:
    - docker compose up --build
-
-## Supabase Authentication
-
-Set these values in `frontend/.env.local`:
-
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-
-Set these backend values in `backend/.env`:
-
-- `SUPABASE_URL`
-- `SUPABASE_PUBLISHABLE_KEY`
-- `FRONTEND_URL` (defaults to `http://localhost:3000`)
-
-The authentication routes are `/login`, `/signup`, and the protected `/dashboard`. The backend protected verification endpoint is `GET /v1/auth/me` and accepts a Supabase access token as a Bearer token.
