@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     allowed_origins: list[str] = ["http://localhost:3000"]
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
+    github_token: str | None = None
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/devopsmanager"
 
     @field_validator("debug", mode="before")

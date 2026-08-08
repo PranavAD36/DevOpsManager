@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session
+from app.integrations.github import GitHubClient, GitHubIntegrationError, parse_github_repository_url
 from app.models.core import AnalysisRun, Issue, Project, Repository
 from app.schemas.core import (
     AnalysisRunCreate,
@@ -17,11 +18,13 @@ from app.schemas.core import (
     ProjectResponse,
     ProjectUpdate,
     RepositoryCreate,
+    RepositoryConnect,
     RepositoryResponse,
     RepositoryUpdate,
 )
 
 router = APIRouter(tags=["core"])
+github_client = GitHubClient()
 
 
 async def get_project_or_404(project_id: UUID, session: AsyncSession) -> Project:
@@ -50,6 +53,30 @@ async def get_issue_or_404(issue_id: UUID, session: AsyncSession) -> Issue:
     if issue is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
     return issue
+
+
+def github_error(error: GitHubIntegrationError) -> HTTPException:
+    return HTTPException(status_code=error.status_code, detail=str(error))
+
+
+def apply_github_metadata(repository: Repository, metadata) -> None:
+    repository.provider = "github"
+    repository.owner = metadata.owner
+    repository.name = metadata.name
+    repository.full_name = metadata.full_name
+    repository.url = metadata.html_url
+    repository.default_branch = metadata.default_branch
+    repository.github_description = metadata.description
+    repository.is_private = metadata.private
+    repository.is_fork = metadata.fork
+    repository.language = metadata.language
+    repository.stargazers_count = metadata.stargazers_count
+    repository.forks_count = metadata.forks_count
+    repository.open_issues_count = metadata.open_issues_count
+    repository.repository_size = metadata.size
+    repository.github_created_at = metadata.created_at
+    repository.github_updated_at = metadata.updated_at
+    repository.pushed_at = metadata.pushed_at
 
 
 @router.post("/projects", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
@@ -99,6 +126,40 @@ async def create_repository(project_id: UUID, payload: RepositoryCreate, session
     return repository
 
 
+@router.post("/projects/{project_id}/repositories/connect", response_model=RepositoryResponse)
+async def connect_github_repository(
+    project_id: UUID,
+    payload: RepositoryConnect,
+    session: AsyncSession = Depends(get_db_session),
+) -> Repository:
+    await get_project_or_404(project_id, session)
+    try:
+        owner, repo_name = parse_github_repository_url(payload.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    try:
+        metadata = await github_client.get_repository_metadata(owner, repo_name)
+    except GitHubIntegrationError as exc:
+        raise github_error(exc) from exc
+
+    repository = await session.scalar(
+        select(Repository).where(
+            Repository.project_id == project_id,
+            Repository.provider == "github",
+            Repository.full_name == metadata.full_name,
+        )
+    )
+    created = repository is None
+    if repository is None:
+        repository = Repository(project_id=project_id, owner=metadata.owner, name=metadata.name, full_name=metadata.full_name, url=metadata.html_url)
+        session.add(repository)
+    apply_github_metadata(repository, metadata)
+    await session.commit()
+    await session.refresh(repository)
+    return repository
+
+
 @router.get("/projects/{project_id}/repositories", response_model=list[RepositoryResponse])
 async def list_repositories(project_id: UUID, session: AsyncSession = Depends(get_db_session)) -> list[Repository]:
     await get_project_or_404(project_id, session)
@@ -126,6 +187,31 @@ async def delete_repository(repository_id: UUID, session: AsyncSession = Depends
     repository = await get_repository_or_404(repository_id, session)
     await session.delete(repository)
     await session.commit()
+
+
+@router.post("/repositories/{repository_id}/refresh", response_model=RepositoryResponse)
+async def refresh_repository(repository_id: UUID, session: AsyncSession = Depends(get_db_session)) -> Repository:
+    repository = await get_repository_or_404(repository_id, session)
+    if repository.provider != "github":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported repository provider")
+    try:
+        metadata = await github_client.get_repository_metadata(repository.owner, repository.name)
+    except GitHubIntegrationError as exc:
+        raise github_error(exc) from exc
+    apply_github_metadata(repository, metadata)
+    await session.commit()
+    await session.refresh(repository)
+    return repository
+
+
+@router.post("/repositories/{repository_id}/analysis-runs", response_model=AnalysisRunResponse, status_code=status.HTTP_201_CREATED)
+async def create_repository_analysis_run(repository_id: UUID, session: AsyncSession = Depends(get_db_session)) -> AnalysisRun:
+    repository = await get_repository_or_404(repository_id, session)
+    analysis_run = AnalysisRun(project_id=repository.project_id, repository_id=repository.id, status="pending")
+    session.add(analysis_run)
+    await session.commit()
+    await session.refresh(analysis_run)
+    return analysis_run
 
 
 @router.post("/projects/{project_id}/analysis-runs", response_model=AnalysisRunResponse, status_code=status.HTTP_201_CREATED)

@@ -21,6 +21,21 @@ class ProjectResponse(ProjectCreate):
     id: UUID
     created_at: datetime
     updated_at: datetime
+    github_description: str | None = None
+    is_private: bool | None = None
+    is_fork: bool | None = None
+    language: str | None = None
+    stargazers_count: int | None = None
+    forks_count: int | None = None
+    open_issues_count: int | None = None
+    repository_size: int | None = None
+    github_created_at: datetime | None = None
+    github_updated_at: datetime | None = None
+    pushed_at: datetime | None = None
+
+
+class RepositoryConnect(BaseModel):
+    url: str = Field(min_length=1, max_length=2048)
 
 
 class RepositoryCreate(BaseModel):
