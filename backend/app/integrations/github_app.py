@@ -65,7 +65,9 @@ class GitHubAppService:
             raise GitHubIntegrationError("Unable to create GitHub App authentication", 503) from exc
 
     def authorization_url(self, state: str) -> str:
-        _, client_id, _, _ = self._require_app_settings()
+        client_id = settings.github_client_id
+        if not client_id:
+            raise GitHubIntegrationError("GitHub App OAuth is not configured", 503)
         query = urlencode({"client_id": client_id, "state": state})
         return f"{self.oauth_url}/authorize?{query}"
 
