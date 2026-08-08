@@ -19,6 +19,17 @@ export type Repository = {
   default_branch: string;
   provider: string;
   is_active: boolean;
+  github_description: string | null;
+  is_private: boolean | null;
+  is_fork: boolean | null;
+  language: string | null;
+  stargazers_count: number | null;
+  forks_count: number | null;
+  open_issues_count: number | null;
+  repository_size: number | null;
+  github_created_at: string | null;
+  github_updated_at: string | null;
+  pushed_at: string | null;
 };
 
 export type AnalysisRun = {
@@ -59,6 +70,10 @@ export const api = {
   getProject: (id: string) => request<Project>(`/v1/projects/${id}`),
   listRepositories: (id: string) => request<Repository[]>(`/v1/projects/${id}/repositories`),
   createRepository: (id: string, payload: Omit<Repository, 'id' | 'project_id' | 'provider' | 'is_active'>) => request<Repository>(`/v1/projects/${id}/repositories`, { method: 'POST', body: JSON.stringify(payload) }),
+  connectRepository: (id: string, url: string) => request<Repository>(`/v1/projects/${id}/repositories/connect`, { method: 'POST', body: JSON.stringify({ url }) }),
+  getRepository: (id: string) => request<Repository>(`/v1/repositories/${id}`),
+  refreshRepository: (id: string) => request<Repository>(`/v1/repositories/${id}/refresh`, { method: 'POST' }),
+  createAnalysisRun: (id: string) => request<AnalysisRun>(`/v1/repositories/${id}/analysis-runs`, { method: 'POST' }),
   listAnalysisRuns: (id: string) => request<AnalysisRun[]>(`/v1/projects/${id}/analysis-runs`),
   listIssues: (id: string) => request<Issue[]>(`/v1/projects/${id}/issues`),
 };
