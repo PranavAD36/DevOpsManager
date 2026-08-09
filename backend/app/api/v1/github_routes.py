@@ -1,12 +1,14 @@
 import secrets
 from typing import Any
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db.session import get_db_session
 from app.integrations.github_app import GitHubAppError, GitHubAppService
 from app.models.core import Project, Repository
@@ -14,6 +16,9 @@ from app.schemas.core import ProjectResponse, RepositoryResponse
 
 router = APIRouter(prefix="/github", tags=["github"])
 github_app_service = GitHubAppService()
+
+CONNECTION_COOKIE = "devopsmanager_github_connection"
+STATE_COOKIE = "github_oauth_state"
 
 
 class ConnectRepositoryRequest(BaseModel):
@@ -53,7 +58,7 @@ async def authorize_github(response: Response) -> dict[str, str]:
     auth_url = github_app_service.get_authorization_url(state)
 
     response.set_cookie(
-        key="github_oauth_state",
+        key=STATE_COOKIE,
         value=state,
         httponly=True,
         max_age=600,
@@ -66,12 +71,18 @@ async def authorize_github(response: Response) -> dict[str, str]:
 
 @router.get("/callback")
 async def github_callback(
-    code: str,
-    state: str,
     request: Request,
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    error_description: str | None = Query(default=None),
+    oauth_state: str | None = Cookie(default=None, alias=STATE_COOKIE),
 ) -> RedirectResponse:
-    stored_state = request.cookies.get("github_oauth_state")
-    if not stored_state or stored_state != state:
+    if error:
+        raise HTTPException(status_code=400, detail=error_description or "GitHub authorization was denied")
+
+    stored_state = oauth_state or request.cookies.get(STATE_COOKIE)
+    if not code or not state or not stored_state or not secrets.compare_digest(state, stored_state):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid GitHub authorization callback",
@@ -82,7 +93,7 @@ async def github_callback(
     except GitHubAppError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
-    redirect_url = "http://localhost:3000/github/connect?status=connected"
+    redirect_url = f"{settings.allowed_origins[0].rstrip('/')}/github/connect?status=connected"
     response = RedirectResponse(url=redirect_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
     response.set_cookie(
         key="github_access_token",
@@ -92,7 +103,7 @@ async def github_callback(
         samesite="lax",
         secure=False,
     )
-    response.delete_cookie("github_oauth_state")
+    response.delete_cookie(STATE_COOKIE)
     return response
 
 
@@ -100,7 +111,14 @@ async def github_callback(
 async def get_github_user(request: Request) -> dict[str, Any]:
     token = _get_access_token(request)
     try:
-        return await github_app_service.get_authenticated_user(token)
+        user = await github_app_service.get_authenticated_user(token)
+        return {
+            "id": user.id,
+            "login": user.login,
+            "name": user.login,
+            "avatar_url": "https://github.com/ghost.png",
+            "html_url": f"https://github.com/{user.login}",
+        }
     except GitHubAppError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 

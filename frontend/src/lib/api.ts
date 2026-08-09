@@ -54,6 +54,21 @@ export type Issue = {
   line_number: number | null;
 };
 
+export type GitHubRepository = {
+  id: number;
+  name: string;
+  full_name: string;
+  owner: string;
+  private: boolean;
+  default_branch: string;
+  html_url: string;
+  description: string | null;
+  permissions: Record<string, boolean> | null;
+  language: string | null;
+  stargazers_count: number;
+  forks_count: number;
+};
+
 type RepositoryInput = {
   owner: string;
   name: string;
@@ -65,6 +80,7 @@ type RepositoryInput = {
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
   });
   if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail ?? 'Request failed');
@@ -84,4 +100,8 @@ export const api = {
   createAnalysisRun: (id: string) => request<AnalysisRun>(`/v1/repositories/${id}/analysis-runs`, { method: 'POST' }),
   listAnalysisRuns: (id: string) => request<AnalysisRun[]>(`/v1/projects/${id}/analysis-runs`),
   listIssues: (id: string) => request<Issue[]>(`/v1/projects/${id}/issues`),
+  getGithubAuthorizationUrl: () => request<{ authorization_url: string }>('/v1/github/authorize'),
+  getGithubConnection: () => request<{ connected: boolean; username: string }>('/v1/github/me'),
+  listGithubRepositories: () => request<GitHubRepository[]>('/v1/github/repositories'),
+  connectGithubRepository: (repositoryId: number) => request<{ project_id: string; repository_id: string; message: string }>('/v1/github/repositories/connect', { method: 'POST', body: JSON.stringify({ repository_id: repositoryId }) }),
 };

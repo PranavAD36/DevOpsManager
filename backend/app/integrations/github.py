@@ -69,10 +69,11 @@ class GitHubClient:
     def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self.transport = transport
 
-    async def get_repository(self, owner: str, repo: str) -> GitHubRepositoryMetadata:
+    async def get_repository(self, owner: str, repo: str, access_token: str | None = None) -> GitHubRepositoryMetadata:
         headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
-        if settings.github_token:
-            headers["Authorization"] = f"Bearer {settings.github_token}"
+        token = access_token or settings.github_token
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
 
         try:
             async with httpx.AsyncClient(timeout=15.0, transport=self.transport) as client:
@@ -112,5 +113,5 @@ class GitHubClient:
         except (KeyError, TypeError, ValueError) as exc:
             raise GitHubIntegrationError("GitHub returned malformed repository data", 502) from exc
 
-    async def get_repository_metadata(self, owner: str, repo: str) -> GitHubRepositoryMetadata:
-        return await self.get_repository(owner, repo)
+    async def get_repository_metadata(self, owner: str, repo: str, access_token: str | None = None) -> GitHubRepositoryMetadata:
+        return await self.get_repository(owner, repo, access_token)

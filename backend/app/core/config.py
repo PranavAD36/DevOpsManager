@@ -12,24 +12,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
     github_token: str | None = None
-    github_client_id: str | None = None
-    github_client_secret: str | None = None
-    github_app_id: str | None = None
-    github_redirect_uri: str = "http://localhost:8000/v1/github/callback"
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/devopsmanager"
-
-    @field_validator("database_url", mode="before")
-    @classmethod
-    def ensure_async_db_driver(cls, v: str | None) -> str:
-        if not v:
-            return "postgresql+asyncpg://postgres:postgres@localhost:5432/devopsmanager"
-        if v.startswith("postgresql://"):
-            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
-        if v.startswith("postgres://"):
-            return v.replace("postgres://", "postgresql+asyncpg://", 1)
-        if v.startswith("postgresql+psycopg2://"):
-            return v.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
-        return v
+    database_url: str
 
     @field_validator("debug", mode="before")
     @classmethod
@@ -42,6 +25,15 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment.lower() in ("production", "prod")
+
+    @property
+    def resolved_github_private_key_path(self) -> Path | None:
+        if not self.github_private_key_path:
+            return None
+        path = Path(self.github_private_key_path)
+        if path.is_absolute():
+            return path
+        return Path(__file__).resolve().parents[2] / path
 
     model_config = SettingsConfigDict(
         env_file=(

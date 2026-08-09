@@ -23,4 +23,6 @@ yarn-debug.log*
 # OS files
 .DS_Store
 Thumbs.db
-agent.md
+
+# Secrets
+backend/secrets/
