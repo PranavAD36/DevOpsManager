@@ -1,13 +1,15 @@
 import asyncio
+import logging
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import pool
-from sqlalchemy.ext.asyncio import AsyncEngine, async_engine_from_config
+from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import settings
 from app.db.base import Base
-import app.models.core  # noqa: F401
+
+logger = logging.getLogger("alembic.env")
 
 config = context.config
 if config.config_file_name is not None:

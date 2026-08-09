@@ -21,17 +21,6 @@ class ProjectResponse(ProjectCreate):
     id: UUID
     created_at: datetime
     updated_at: datetime
-    github_description: str | None = None
-    is_private: bool | None = None
-    is_fork: bool | None = None
-    language: str | None = None
-    stargazers_count: int | None = None
-    forks_count: int | None = None
-    open_issues_count: int | None = None
-    repository_size: int | None = None
-    github_created_at: datetime | None = None
-    github_updated_at: datetime | None = None
-    pushed_at: datetime | None = None
 
 
 class RepositoryConnect(BaseModel):
@@ -62,6 +51,17 @@ class RepositoryResponse(RepositoryCreate):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     project_id: UUID
+    github_description: str | None = None
+    is_private: bool | None = None
+    is_fork: bool | None = None
+    language: str | None = None
+    stargazers_count: int | None = None
+    forks_count: int | None = None
+    open_issues_count: int | None = None
+    repository_size: int | None = None
+    github_created_at: datetime | None = None
+    github_updated_at: datetime | None = None
+    pushed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -12,7 +12,20 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
     github_token: str | None = None
-    database_url: str
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/devopsmanager"
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def ensure_async_db_driver(cls, v: str | None) -> str:
+        if not v:
+            return "postgresql+asyncpg://postgres:postgres@localhost:5432/devopsmanager"
+        if v.startswith("postgresql://"):
+            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        if v.startswith("postgres://"):
+            return v.replace("postgres://", "postgresql+asyncpg://", 1)
+        if v.startswith("postgresql+psycopg2://"):
+            return v.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
+        return v
 
     @field_validator("debug", mode="before")
     @classmethod

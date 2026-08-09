@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, Uuid
@@ -8,7 +8,7 @@ from app.db.base import Base
 
 
 def utc_now() -> datetime:
-    return datetime.now().astimezone()
+    return datetime.now(timezone.utc)
 
 
 class Project(Base):
@@ -54,7 +54,7 @@ class Repository(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 
     project: Mapped[Project] = relationship(back_populates="repositories")
-    analysis_runs: Mapped[list["AnalysisRun"]] = relationship(back_populates="repository")
+    analysis_runs: Mapped[list["AnalysisRun"]] = relationship(back_populates="repository", cascade="all, delete-orphan")
     issues: Mapped[list["Issue"]] = relationship(back_populates="repository")
 
 

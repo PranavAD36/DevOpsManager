@@ -9,5 +9,6 @@ google-generativeai>=0.8.0
 langchain>=0.3.7
 langgraph>=0.2.50
 asyncpg>=0.29.0
+aiosqlite>=0.20.0
 sqlalchemy>=2.0.35
 pytest>=8.3.0
