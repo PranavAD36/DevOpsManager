@@ -103,3 +103,49 @@ def test_github_not_found_and_missing_project(monkeypatch) -> None:
             assert client.post(f"/v1/projects/{project_id}/repositories/connect", json={"url": "https://example.com/repo"}).status_code == 400
         finally:
             assert client.delete(f"/v1/projects/{project_id}").status_code == 204
+
+
+def test_github_oauth_flow_endpoints() -> None:
+    with TestClient(app) as client:
+        auth_resp = client.get("/v1/github/authorize")
+        assert auth_resp.status_code == 200
+        data = auth_resp.json()
+        assert "authorization_url" in data
+        assert "state" in data
+        state = data["state"]
+
+        client.cookies.update(auth_resp.cookies)
+
+        callback_resp = client.get(
+            f"/v1/github/callback?code=mock_auth_code&state={state}",
+            follow_redirects=False,
+        )
+        assert callback_resp.status_code == 307
+
+        client.cookies.update(callback_resp.cookies)
+
+        me_resp = client.get("/v1/github/me")
+        assert me_resp.status_code == 200
+        assert "login" in me_resp.json()
+
+        repos_resp = client.get("/v1/github/repositories")
+        assert repos_resp.status_code == 200
+        repos = repos_resp.json()
+        assert isinstance(repos, list)
+        assert len(repos) > 0
+
+        connect_resp = client.post(
+            "/v1/github/repositories/connect",
+            json={
+                "full_name": "PranavAD36/Advanced-Web-Development-Frameworks",
+                "html_url": "https://github.com/PranavAD36/Advanced-Web-Development-Frameworks",
+                "default_branch": "main",
+                "description": "Sample framework project",
+            },
+        )
+        assert connect_resp.status_code == 201
+        res_json = connect_resp.json()
+        assert "project_id" in res_json
+        assert "repository_id" in res_json
+
+        client.delete(f"/v1/projects/{res_json['project_id']}")

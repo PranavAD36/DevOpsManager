@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
     github_token: str | None = None
+    github_client_id: str | None = None
+    github_client_secret: str | None = None
+    github_app_id: str | None = None
+    github_redirect_uri: str = "http://localhost:8000/v1/github/callback"
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/devopsmanager"
 
     @field_validator("database_url", mode="before")
