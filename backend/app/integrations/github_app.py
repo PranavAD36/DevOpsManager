@@ -27,6 +27,9 @@ class GitHubAccessibleRepository:
     default_branch: str
     html_url: str
     description: str | None
+    language: str | None
+    stargazers_count: int
+    forks_count: int
     permissions: dict[str, bool] | None
 
 
@@ -68,7 +71,7 @@ class GitHubAppService:
         client_id = settings.github_client_id
         if not client_id:
             raise GitHubIntegrationError("GitHub App OAuth is not configured", 503)
-        query = urlencode({"client_id": client_id, "state": state})
+        query = urlencode({"client_id": client_id, "redirect_uri": settings.github_callback_url, "state": state})
         return f"{self.oauth_url}/authorize?{query}"
 
     async def exchange_code(self, code: str) -> GitHubOAuthToken:
@@ -77,7 +80,7 @@ class GitHubAppService:
             async with httpx.AsyncClient(timeout=15.0, transport=self.transport) as client:
                 response = await client.post(
                     f"{self.oauth_url}/access_token",
-                    data={"client_id": client_id, "client_secret": client_secret, "code": code},
+                    data={"client_id": client_id, "client_secret": client_secret, "code": code, "redirect_uri": settings.github_callback_url},
                     headers={"Accept": "application/json"},
                 )
         except httpx.HTTPError as exc:
@@ -110,7 +113,9 @@ class GitHubAppService:
                     id=int(item["id"]), name=str(item["name"]), full_name=str(item["full_name"]),
                     owner=str(item["owner"]["login"]), private=bool(item.get("private", False)),
                     default_branch=str(item.get("default_branch") or "main"), html_url=str(item["html_url"]),
-                    description=item.get("description"), permissions=item.get("permissions"),
+                    description=item.get("description"), language=item.get("language"),
+                    stargazers_count=int(item.get("stargazers_count", 0)), forks_count=int(item.get("forks_count", 0)),
+                    permissions=item.get("permissions"),
                 )
                 for item in data
             ]

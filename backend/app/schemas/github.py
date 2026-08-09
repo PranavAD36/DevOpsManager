@@ -22,12 +22,15 @@ class GitHubRepositoryAccessResponse(BaseModel):
     default_branch: str
     html_url: str
     description: str | None
+    language: str | None = None
+    stargazers_count: int = 0
+    forks_count: int = 0
     permissions: dict[str, bool] | None = None
 
 
 class GitHubRepositoryConnect(BaseModel):
-    project_id: UUID
     repository_id: int = Field(gt=0)
+    project_id: UUID | None = None
 
 
 class GitHubCallbackError(BaseModel):

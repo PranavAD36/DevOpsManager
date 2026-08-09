@@ -114,9 +114,6 @@ async def connect_repository(
     session: AsyncSession = Depends(get_db_session),
 ) -> dict[str, str | UUID]:
     connection = await get_connection(connection_id, session)
-    project = await session.get(Project, payload.project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
     try:
         available = await github_app.list_repositories(connection.access_token)
     except GitHubIntegrationError as exc:
@@ -124,17 +121,28 @@ async def connect_repository(
     selected = next((item for item in available if item.id == payload.repository_id), None)
     if selected is None:
         raise HTTPException(status_code=404, detail="Repository is not accessible to this GitHub account")
+    existing_repository = await session.scalar(
+        select(Repository).where(Repository.provider == "github", Repository.full_name == selected.full_name)
+    )
+    if existing_repository is not None:
+        return {"project_id": existing_repository.project_id, "repository_id": existing_repository.id, "message": "Repository is already connected"}
+    if payload.project_id is not None:
+        project = await session.get(Project, payload.project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+    else:
+        project = Project(name=selected.full_name, description=selected.description)
+        session.add(project)
+        await session.flush()
     try:
         metadata = await github_metadata_client.get_repository_metadata(selected.owner, selected.name, connection.access_token)
     except GitHubIntegrationError as exc:
         raise github_error(exc) from exc
-    repository = await session.scalar(select(Repository).where(Repository.project_id == project.id, Repository.provider == "github", Repository.full_name == metadata.full_name))
-    if repository is None:
-        repository = Repository(project_id=project.id, owner=metadata.owner, name=metadata.name, full_name=metadata.full_name, url=metadata.html_url)
-        session.add(repository)
+    repository = Repository(project_id=project.id, owner=metadata.owner, name=metadata.name, full_name=metadata.full_name, url=metadata.html_url)
+    session.add(repository)
     apply_github_metadata(repository, metadata)
     await session.commit()
-    return {"repository_id": repository.id, "message": "Repository connected and metadata synchronized"}
+    return {"project_id": project.id, "repository_id": repository.id, "message": "Project created and repository connected"}
 
 
 async def _get_current_connection(

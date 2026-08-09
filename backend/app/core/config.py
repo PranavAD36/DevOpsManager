@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     github_client_id: str | None = None
     github_client_secret: str | None = None
     github_private_key_path: str | None = None
+    github_callback_url: str = "http://localhost:8000/v1/github/callback"
     database_url: str
 
     @field_validator("debug", mode="before")

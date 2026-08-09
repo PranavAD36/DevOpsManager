@@ -64,6 +64,9 @@ export type GitHubRepository = {
   html_url: string;
   description: string | null;
   permissions: Record<string, boolean> | null;
+  language: string | null;
+  stargazers_count: number;
+  forks_count: number;
 };
 
 type RepositoryInput = {
@@ -100,5 +103,5 @@ export const api = {
   getGithubAuthorizationUrl: () => request<{ authorization_url: string }>('/v1/github/authorize'),
   getGithubConnection: () => request<{ connected: boolean; username: string }>('/v1/github/me'),
   listGithubRepositories: () => request<GitHubRepository[]>('/v1/github/repositories'),
-  connectGithubRepository: (projectId: string, repositoryId: number) => request<{ repository_id: string; message: string }>('/v1/github/repositories/connect', { method: 'POST', body: JSON.stringify({ project_id: projectId, repository_id: repositoryId }) }),
+  connectGithubRepository: (repositoryId: number) => request<{ project_id: string; repository_id: string; message: string }>('/v1/github/repositories/connect', { method: 'POST', body: JSON.stringify({ repository_id: repositoryId }) }),
 };
