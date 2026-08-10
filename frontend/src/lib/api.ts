@@ -57,6 +57,7 @@ export type Issue = {
   line_number: number | null;
   suggested_fix: string | null;
   corrected_code: string | null;
+  approved_at: string | null;
 };
 
 export type GitHubRepository = {
@@ -105,8 +106,12 @@ export const api = {
   createAnalysisRun: (id: string) => request<AnalysisRun>(`/v1/repositories/${id}/analysis-runs`, { method: 'POST' }),
   listAnalysisRuns: (id: string) => request<AnalysisRun[]>(`/v1/projects/${id}/analysis-runs`),
   listIssues: (id: string) => request<Issue[]>(`/v1/projects/${id}/issues`),
+  approveIssueFix: (id: string) => request<Issue>(`/v1/issues/${id}/approve`, { method: 'POST' }),
+  rejectIssueFix: (id: string) => request<Issue>(`/v1/issues/${id}/reject`, { method: 'POST' }),
+  updateIssueFix: (id: string, payload: { corrected_code?: string; suggested_fix?: string }) => request<Issue>(`/v1/issues/${id}/update-fix`, { method: 'POST', body: JSON.stringify(payload) }),
   getGithubAuthorizationUrl: () => request<{ authorization_url: string }>('/v1/github/authorize'),
   getGithubConnection: () => request<{ connected: boolean; username: string }>('/v1/github/me'),
   listGithubRepositories: () => request<GitHubRepository[]>('/v1/github/repositories'),
   connectGithubRepository: (repositoryId: number) => request<{ project_id: string; repository_id: string; message: string }>('/v1/github/repositories/connect', { method: 'POST', body: JSON.stringify({ repository_id: repositoryId }) }),
 };
+

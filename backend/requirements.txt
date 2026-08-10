@@ -13,4 +13,5 @@ langgraph>=0.2.50
 asyncpg>=0.29.0
 aiosqlite>=0.20.0
 sqlalchemy>=2.0.35
+alembic>=1.13.0
 pytest>=8.3.0

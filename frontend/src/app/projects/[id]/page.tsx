@@ -11,6 +11,7 @@ import {
   type Project,
   type Repository,
 } from "../../../lib/api";
+import DiffViewer from "../../../components/DiffViewer";
 
 export default function ProjectDetailsPage() {
   const { id } = useParams<{ id: string }>();
@@ -22,6 +23,7 @@ export default function ProjectDetailsPage() {
   const [severity, setSeverity] = useState("all");
   const [issueStatus, setIssueStatus] = useState("all");
   const [busyRepository, setBusyRepository] = useState<string | null>(null);
+  const [busyIssue, setBusyIssue] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +116,64 @@ export default function ProjectDetailsPage() {
       setBusyRepository(null);
     }
   }
+
+  async function approveFix(issueId: string) {
+    setBusyIssue(issueId);
+    setError(null);
+    setMessage(null);
+    try {
+      await api.approveIssueFix(issueId);
+      setMessage("Fix approved successfully.");
+      await load();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to approve fix.",
+      );
+    } finally {
+      setBusyIssue(null);
+    }
+  }
+
+  async function rejectFix(issueId: string) {
+    setBusyIssue(issueId);
+    setError(null);
+    setMessage(null);
+    try {
+      await api.rejectIssueFix(issueId);
+      setMessage("Fix rejected.");
+      await load();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to reject fix.",
+      );
+    } finally {
+      setBusyIssue(null);
+    }
+  }
+
+  async function updateFixCode(issueId: string, newCode: string) {
+    setBusyIssue(issueId);
+    setError(null);
+    setMessage(null);
+    try {
+      await api.updateIssueFix(issueId, { corrected_code: newCode });
+      setMessage("Custom fix saved.");
+      await load();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to save custom fix.",
+      );
+    } finally {
+      setBusyIssue(null);
+    }
+  }
+
 
   const filteredIssues = issues.filter(
     (issue) =>
@@ -304,7 +364,8 @@ export default function ProjectDetailsPage() {
                       >
                         <option value="all">All statuses</option>
                         <option value="open">Open</option>
-                        <option value="resolved">Resolved</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
                       </select>
                     </div>
                   </div>
@@ -317,13 +378,28 @@ export default function ProjectDetailsPage() {
                           className="rounded-xl border border-slate-800 bg-slate-900/70 p-4"
                           key={issue.id}
                         >
-                          <div className="flex flex-wrap justify-between gap-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
                             <h3 className="font-medium text-white">
                               {issue.title}
                             </h3>
-                            <span className="text-sm text-amber-300">
-                              {issue.severity} · {issue.status}
-                            </span>
+                            <div className="flex items-center gap-2 text-xs">
+                              <span className="rounded bg-slate-800 px-2 py-0.5 text-amber-300 capitalize">
+                                {issue.severity}
+                              </span>
+                              {issue.status === "approved" ? (
+                                <span className="rounded bg-emerald-950 border border-emerald-800 px-2 py-0.5 text-emerald-400 font-semibold">
+                                  ✓ Fix Approved
+                                </span>
+                              ) : issue.status === "rejected" ? (
+                                <span className="rounded bg-rose-950 border border-rose-800 px-2 py-0.5 text-rose-400 font-semibold">
+                                  ✗ Fix Rejected
+                                </span>
+                              ) : (
+                                <span className="rounded bg-slate-800 px-2 py-0.5 text-slate-300 capitalize">
+                                  {issue.status}
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <p className="mt-2 text-sm text-slate-300">
                             {issue.description || "No description provided."}
@@ -337,21 +413,55 @@ export default function ProjectDetailsPage() {
                           {issue.suggested_fix && (
                             <div className="mt-3 rounded-lg border border-emerald-800/50 bg-emerald-950/30 p-3">
                               <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400">
-                                Suggested Fix
+                                Suggested Fix Explanation
                               </p>
                               <p className="mt-1 text-sm text-emerald-200">
                                 {issue.suggested_fix}
                               </p>
                             </div>
                           )}
+
                           {issue.corrected_code && (
-                            <div className="mt-3">
-                              <p className="text-xs font-semibold uppercase tracking-wider text-cyan-400">
-                                Corrected Code
-                              </p>
-                              <pre className="mt-1 overflow-x-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-200">
-                                <code>{issue.corrected_code}</code>
-                              </pre>
+                            <DiffViewer
+                              filePath={issue.file_path}
+                              lineNumber={issue.line_number}
+                              description={issue.description}
+                              correctedCode={issue.corrected_code}
+                              onSaveFix={(newCode) => updateFixCode(issue.id, newCode)}
+                            />
+                          )}
+
+                          {issue.corrected_code && (
+                            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800/80 pt-3">
+                              <span className="text-xs text-slate-400">
+                                Phase 7 Safe Approval: Review diff above before approving.
+                              </span>
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  className="rounded-lg border border-rose-900 bg-rose-950/40 px-3 py-1.5 text-xs font-semibold text-rose-300 hover:bg-rose-900/60 disabled:opacity-50"
+                                  disabled={busyIssue === issue.id || issue.status === "rejected"}
+                                  onClick={() => void rejectFix(issue.id)}
+                                >
+                                  {busyIssue === issue.id && issue.status !== "approved"
+                                    ? "Rejecting..."
+                                    : issue.status === "rejected"
+                                      ? "Rejected"
+                                      : "Reject Fix"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                                  disabled={busyIssue === issue.id || issue.status === "approved"}
+                                  onClick={() => void approveFix(issue.id)}
+                                >
+                                  {busyIssue === issue.id && issue.status !== "rejected"
+                                    ? "Approving..."
+                                    : issue.status === "approved"
+                                      ? "✓ Approved"
+                                      : "Approve Fix"}
+                                </button>
+                              </div>
                             </div>
                           )}
                         </div>

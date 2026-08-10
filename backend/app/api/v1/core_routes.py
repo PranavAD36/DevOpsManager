@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -311,3 +312,40 @@ async def delete_issue(issue_id: UUID, session: AsyncSession = Depends(get_db_se
     issue = await get_issue_or_404(issue_id, session)
     await session.delete(issue)
     await session.commit()
+
+
+@router.post("/issues/{issue_id}/approve", response_model=IssueResponse)
+async def approve_issue_fix(issue_id: UUID, session: AsyncSession = Depends(get_db_session)) -> Issue:
+    issue = await get_issue_or_404(issue_id, session)
+    issue.status = "approved"
+    issue.approved_at = datetime.now(timezone.utc)
+    await session.commit()
+    await session.refresh(issue)
+    return issue
+
+
+@router.post("/issues/{issue_id}/reject", response_model=IssueResponse)
+async def reject_issue_fix(issue_id: UUID, session: AsyncSession = Depends(get_db_session)) -> Issue:
+    issue = await get_issue_or_404(issue_id, session)
+    issue.status = "rejected"
+    await session.commit()
+    await session.refresh(issue)
+    return issue
+
+
+@router.post("/issues/{issue_id}/update-fix", response_model=IssueResponse)
+async def update_issue_fix(
+    issue_id: UUID,
+    payload: IssueUpdate,
+    session: AsyncSession = Depends(get_db_session),
+) -> Issue:
+    issue = await get_issue_or_404(issue_id, session)
+    data = payload.model_dump(exclude_unset=True)
+    if "corrected_code" in data:
+        issue.corrected_code = data["corrected_code"]
+    if "suggested_fix" in data:
+        issue.suggested_fix = data["suggested_fix"]
+    await session.commit()
+    await session.refresh(issue)
+    return issue
+

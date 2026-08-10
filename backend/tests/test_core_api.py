@@ -93,3 +93,45 @@ def test_core_not_found_behavior() -> None:
         assert client.get(f"/v1/repositories/{missing_id}").status_code == 404
         assert client.get(f"/v1/analysis-runs/{missing_id}").status_code == 404
         assert client.get(f"/v1/issues/{missing_id}").status_code == 404
+
+
+def test_issue_fix_approval_and_rejection_flow() -> None:
+    with TestClient(app) as client:
+        project_resp = client.post("/v1/projects", json={"name": f"Fix Test Project {uuid4()}"})
+        assert project_resp.status_code == 201
+        project_id = project_resp.json()["id"]
+
+        try:
+            issue_resp = client.post(
+                f"/v1/projects/{project_id}/issues",
+                json={
+                    "title": "SQL Injection Risk",
+                    "description": "Unsanitized raw query",
+                    "suggested_fix": "Use parameterized query",
+                    "corrected_code": "cursor.execute('SELECT * FROM users WHERE id = %s', (user_id,))",
+                },
+            )
+            assert issue_resp.status_code == 201
+            issue_id = issue_resp.json()["id"]
+
+            # Update fix text
+            update_fix_resp = client.post(
+                f"/v1/issues/{issue_id}/update-fix",
+                json={"corrected_code": "cursor.execute('SELECT * FROM users WHERE id = %s', [user_id])"},
+            )
+            assert update_fix_resp.status_code == 200
+            assert update_fix_resp.json()["corrected_code"] == "cursor.execute('SELECT * FROM users WHERE id = %s', [user_id])"
+
+            # Approve fix
+            approve_resp = client.post(f"/v1/issues/{issue_id}/approve")
+            assert approve_resp.status_code == 200
+            assert approve_resp.json()["status"] == "approved"
+            assert approve_resp.json()["approved_at"] is not None
+
+            # Reject fix
+            reject_resp = client.post(f"/v1/issues/{issue_id}/reject")
+            assert reject_resp.status_code == 200
+            assert reject_resp.json()["status"] == "rejected"
+        finally:
+            client.delete(f"/v1/projects/{project_id}")
+

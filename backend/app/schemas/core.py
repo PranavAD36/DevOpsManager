@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProjectCreate(BaseModel):
@@ -31,7 +31,7 @@ class RepositoryCreate(BaseModel):
     owner: str = Field(min_length=1, max_length=255)
     name: str = Field(min_length=1, max_length=255)
     full_name: str = Field(min_length=1, max_length=511)
-    url: AnyHttpUrl
+    url: str = Field(min_length=1, max_length=2048)
     default_branch: str = Field(default="main", max_length=255)
     provider: str = Field(default="github", max_length=50)
     is_active: bool = True
@@ -41,10 +41,11 @@ class RepositoryUpdate(BaseModel):
     owner: str | None = Field(default=None, min_length=1, max_length=255)
     name: str | None = Field(default=None, min_length=1, max_length=255)
     full_name: str | None = Field(default=None, min_length=1, max_length=511)
-    url: AnyHttpUrl | None = None
+    url: str | None = Field(default=None, max_length=2048)
     default_branch: str | None = Field(default=None, max_length=255)
     provider: str | None = Field(default=None, max_length=50)
     is_active: bool | None = None
+
 
 
 class RepositoryResponse(RepositoryCreate):
@@ -122,5 +123,7 @@ class IssueResponse(IssueCreate):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     project_id: UUID
+    approved_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
