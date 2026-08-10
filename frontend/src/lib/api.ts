@@ -55,6 +55,8 @@ export type Issue = {
   category: string | null;
   file_path: string | null;
   line_number: number | null;
+  suggested_fix: string | null;
+  corrected_code: string | null;
 };
 
 export type GitHubRepository = {

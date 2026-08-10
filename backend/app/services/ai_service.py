@@ -17,6 +17,8 @@ class AnalyzedIssue(BaseModel):
     category: str = Field(min_length=1, max_length=100)
     file_path: str | None = None
     line_number: int | None = Field(default=None, ge=1)
+    suggested_fix: str | None = None
+    corrected_code: str | None = None
 
 
 class RepositoryAnalysisResult(BaseModel):
@@ -65,9 +67,14 @@ def _build_prompt(repository_name: str, language: str | None, files: list[object
     source = "\n\n".join(f"FILE: {item.path}\n{item.content}" for item in files)
     return (
         "Analyze this repository for actionable software, security, reliability, and maintainability problems. "
+        "For each issue, explain clearly what is wrong and why it is a problem. "
+        "Include a human-readable suggested_fix describing how to correct it, "
+        "and provide corrected_code with the fixed code snippet when applicable. "
         "Return only valid JSON matching {summary: string, issues: [{title, description, severity, category, "
-        "file_path, line_number}]}. Severity must be low, medium, high, or critical. "
-        "Use null for unknown file_path or line_number. Do not invent issues unrelated to the supplied files.\n\n"
+        "file_path, line_number, suggested_fix, corrected_code}]}. "
+        "Severity must be low, medium, high, or critical. "
+        "Use null for unknown file_path, line_number, suggested_fix, or corrected_code. "
+        "Do not invent issues unrelated to the supplied files.\n\n"
         f"Repository: {repository_name}\nLanguage: {language or 'unknown'}\n\n{source}"
     )
 

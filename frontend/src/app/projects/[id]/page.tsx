@@ -334,6 +334,26 @@ export default function ProjectDetailsPage() {
                               ? ` · ${issue.file_path}${issue.line_number ? `:${issue.line_number}` : ""}`
                               : ""}
                           </p>
+                          {issue.suggested_fix && (
+                            <div className="mt-3 rounded-lg border border-emerald-800/50 bg-emerald-950/30 p-3">
+                              <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400">
+                                Suggested Fix
+                              </p>
+                              <p className="mt-1 text-sm text-emerald-200">
+                                {issue.suggested_fix}
+                              </p>
+                            </div>
+                          )}
+                          {issue.corrected_code && (
+                            <div className="mt-3">
+                              <p className="text-xs font-semibold uppercase tracking-wider text-cyan-400">
+                                Corrected Code
+                              </p>
+                              <pre className="mt-1 overflow-x-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-200">
+                                <code>{issue.corrected_code}</code>
+                              </pre>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>

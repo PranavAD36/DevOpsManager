@@ -101,6 +101,8 @@ class Issue(Base):
     category: Mapped[str | None] = mapped_column(String(100))
     file_path: Mapped[str | None] = mapped_column(String(2048))
     line_number: Mapped[int | None] = mapped_column(Integer)
+    suggested_fix: Mapped[str | None] = mapped_column(Text)
+    corrected_code: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 

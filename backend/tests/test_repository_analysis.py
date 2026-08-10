@@ -63,6 +63,8 @@ def test_repository_analysis_completes_and_creates_issues(monkeypatch) -> None:
                         category="quality",
                         file_path="app.py",
                         line_number=1,
+                        suggested_fix="Replace print() with logging.info().",
+                        corrected_code="import logging\nlogging.info('hello')",
                     )],
                 )
 
@@ -76,6 +78,8 @@ def test_repository_analysis_completes_and_creates_issues(monkeypatch) -> None:
             assert len(stored_issues) == 1
             assert stored_issues[0].analysis_run_id == result.id
             assert stored_issues[0].repository_id == repository.id
+            assert stored_issues[0].suggested_fix == "Replace print() with logging.info()."
+            assert stored_issues[0].corrected_code == "import logging\nlogging.info('hello')"
         async with analysis_engine.begin() as connection:
             await connection.run_sync(Base.metadata.drop_all)
 

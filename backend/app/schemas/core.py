@@ -100,6 +100,8 @@ class IssueCreate(BaseModel):
     line_number: int | None = Field(default=None, ge=1)
     repository_id: UUID | None = None
     analysis_run_id: UUID | None = None
+    suggested_fix: str | None = None
+    corrected_code: str | None = None
 
 
 class IssueUpdate(BaseModel):
@@ -112,6 +114,8 @@ class IssueUpdate(BaseModel):
     line_number: int | None = Field(default=None, ge=1)
     repository_id: UUID | None = None
     analysis_run_id: UUID | None = None
+    suggested_fix: str | None = None
+    corrected_code: str | None = None
 
 
 class IssueResponse(IssueCreate):

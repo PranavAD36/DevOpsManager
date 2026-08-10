@@ -43,6 +43,8 @@ async def run_repository_analysis(
                     category=detected_issue.category,
                     file_path=detected_issue.file_path,
                     line_number=detected_issue.line_number,
+                    suggested_fix=detected_issue.suggested_fix,
+                    corrected_code=detected_issue.corrected_code,
                 )
             )
         analysis_run.status = "completed"
