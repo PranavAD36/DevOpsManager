@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     allowed_origins: list[str] = ["http://localhost:3000"]
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
+    ai_provider: str = "openai"
+    openai_model: str = "gpt-4o-mini"
+    gemini_model: str = "gemini-1.5-flash"
     github_token: str | None = None
     github_client_id: str | None = None
     github_client_secret: str | None = None

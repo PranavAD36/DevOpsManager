@@ -1,10 +1,18 @@
 from fastapi.testclient import TestClient
+from app.core.config import settings
+from app.services import ai_service
 from app.main import app
 
 client = TestClient(app)
 
 
-def test_analyze_repo_success() -> None:
+def test_analyze_repo_success(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+
+    async def fake_openai(prompt: str) -> str:
+        return '{"summary":"Reviewed repository","issues":[]}'
+
+    monkeypatch.setattr(ai_service, "_call_openai", fake_openai)
     payload = {
         "repo_name": "DevOpsManager",
         "branch": "main",

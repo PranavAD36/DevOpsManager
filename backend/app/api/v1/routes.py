@@ -10,7 +10,6 @@ router.include_router(database_router)
 router.include_router(ai_router)
 router.include_router(github_router)
 router.include_router(core_router)
-router.include_router(github_router)
 
 
 @router.get("/status")

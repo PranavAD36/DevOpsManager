@@ -37,7 +37,10 @@ export type AnalysisRun = {
   project_id: string;
   repository_id: string;
   status: string;
+  started_at: string | null;
+  completed_at: string | null;
   summary: string | null;
+  error_message: string | null;
   created_at: string;
 };
 

@@ -66,7 +66,7 @@ def test_github_metadata_service_with_mocked_http() -> None:
     asyncio.run(run())
 
 
-def test_connect_duplicate_refresh_and_pending_analysis(monkeypatch) -> None:
+def test_connect_duplicate_refresh_and_analysis_requires_github_auth(monkeypatch) -> None:
     async def fake_metadata(owner: str, repo: str) -> GitHubRepositoryMetadata:
         assert owner == "octocat"
         assert repo == "hello-world"
@@ -85,8 +85,7 @@ def test_connect_duplicate_refresh_and_pending_analysis(monkeypatch) -> None:
             assert second.json()["id"] == repository_id
             assert client.post(f"/v1/repositories/{repository_id}/refresh").status_code == 200
             analysis = client.post(f"/v1/repositories/{repository_id}/analysis-runs")
-            assert analysis.status_code == 201
-            assert analysis.json()["status"] == "pending"
+            assert analysis.status_code == 401
         finally:
             assert client.delete(f"/v1/projects/{project_id}").status_code == 204
 

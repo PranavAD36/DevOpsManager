@@ -1,12 +1,14 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session
 from app.integrations.github import GitHubClient, GitHubIntegrationError, parse_github_repository_url
 from app.models.core import AnalysisRun, Issue, Project, Repository
+from app.services.repository_analysis import run_repository_analysis
+from app.api.v1.github_routes import _get_access_token
 from app.schemas.core import (
     AnalysisRunCreate,
     AnalysisRunResponse,
@@ -206,13 +208,17 @@ async def refresh_repository(repository_id: UUID, session: AsyncSession = Depend
 
 
 @router.post("/repositories/{repository_id}/analysis-runs", response_model=AnalysisRunResponse, status_code=status.HTTP_201_CREATED)
-async def create_repository_analysis_run(repository_id: UUID, session: AsyncSession = Depends(get_db_session)) -> AnalysisRun:
+async def create_repository_analysis_run(
+    repository_id: UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+) -> AnalysisRun:
     repository = await get_repository_or_404(repository_id, session)
     analysis_run = AnalysisRun(project_id=repository.project_id, repository_id=repository.id, status="pending")
     session.add(analysis_run)
     await session.commit()
-    await session.refresh(analysis_run)
-    return analysis_run
+    access_token = _get_access_token(request)
+    return await run_repository_analysis(session, analysis_run, repository, access_token)
 
 
 @router.post("/projects/{project_id}/analysis-runs", response_model=AnalysisRunResponse, status_code=status.HTTP_201_CREATED)

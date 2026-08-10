@@ -1,8 +1,9 @@
+import base64
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import httpx
 import jwt
@@ -43,6 +44,12 @@ class GitHubAccessibleRepository:
 class GitHubOAuthToken:
     access_token: str
     expires_at: datetime | None
+
+
+@dataclass(frozen=True)
+class GitHubRepositoryFile:
+    path: str
+    content: str
 
 
 class GitHubAppService:
@@ -239,3 +246,88 @@ class GitHubAppService:
             )
             for item in data
         ]
+
+    async def get_repository_source_files(
+        self,
+        access_token: str,
+        owner: str,
+        repository: str,
+        branch: str,
+        max_files: int = 40,
+        max_file_bytes: int = 12000,
+        max_total_bytes: int = 120000,
+    ) -> list[GitHubRepositoryFile]:
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        tree_url = f"{self.base_url}/repos/{owner}/{repository}/git/trees/{quote(branch, safe='')}"
+        try:
+            async with httpx.AsyncClient(timeout=20.0, transport=self.transport) as client:
+                tree_response = await client.get(tree_url, params={"recursive": "1"}, headers=headers)
+                if tree_response.status_code == 401:
+                    raise GitHubAppError("Invalid or expired GitHub access token", 401)
+                if tree_response.is_error:
+                    raise GitHubAppError("Failed to fetch GitHub repository tree", 502)
+                tree = tree_response.json()
+
+                files: list[GitHubRepositoryFile] = []
+                total_bytes = 0
+                for entry in tree.get("tree", []):
+                    path = str(entry.get("path", ""))
+                    size = int(entry.get("size", 0) or 0)
+                    if (
+                        entry.get("type") != "blob"
+                        or not _is_relevant_source_path(path)
+                        or size > max_file_bytes
+                        or len(files) >= max_files
+                        or total_bytes + size > max_total_bytes
+                    ):
+                        continue
+                    content_response = await client.get(
+                        f"{self.base_url}/repos/{owner}/{repository}/contents/{quote(path, safe='/')}",
+                        params={"ref": branch},
+                        headers=headers,
+                    )
+                    if content_response.status_code == 404:
+                        continue
+                    if content_response.is_error:
+                        raise GitHubAppError("Failed to fetch GitHub repository file", 502)
+                    content_data = content_response.json()
+                    if content_data.get("encoding") != "base64" or not content_data.get("content"):
+                        continue
+                    try:
+                        content = base64.b64decode(content_data["content"]).decode("utf-8")
+                    except (ValueError, UnicodeDecodeError):
+                        continue
+                    if len(content.encode("utf-8")) > max_file_bytes:
+                        continue
+                    files.append(GitHubRepositoryFile(path=path, content=content))
+                    total_bytes += len(content.encode("utf-8"))
+                return files
+        except GitHubAppError:
+            raise
+        except httpx.TimeoutException as exc:
+            raise GitHubAppError("GitHub repository content request timed out", 504) from exc
+        except httpx.HTTPError as exc:
+            raise GitHubAppError("GitHub repository content request failed", 502) from exc
+
+
+def _is_relevant_source_path(path: str) -> bool:
+    excluded_parts = {".git", "node_modules", ".next", "dist", "build", "__pycache__", ".venv", "venv", "env"}
+    parts = set(path.replace("\\", "/").split("/"))
+    if parts & excluded_parts:
+        return False
+    filename = path.rsplit("/", 1)[-1].lower()
+    if filename in {".env", "id_rsa", "package-lock.json", "yarn.lock", "pnpm-lock.yaml"}:
+        return False
+    if filename.endswith((".pem", ".key", ".p12", ".pfx")):
+        return False
+    return filename.endswith(
+        (
+            ".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".go", ".rs", ".rb", ".php",
+            ".cs", ".cpp", ".c", ".h", ".sql", ".yaml", ".yml", ".json", ".toml", ".ini",
+            ".md", ".dockerfile",
+        )
+    ) or filename in {"dockerfile", "makefile", "readme"}
