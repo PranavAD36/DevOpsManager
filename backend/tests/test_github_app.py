@@ -45,5 +45,27 @@ def test_oauth_exchange_user_and_repository_listing(monkeypatch) -> None:
     asyncio.run(run())
 
 
+def test_repository_source_files_resolve_branch_to_tree_sha() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/repos/octocat/hello-world/git/refs/heads/main":
+            return httpx.Response(200, json={"ref": "refs/heads/main", "object": {"type": "commit", "sha": "abc123"}})
+        if request.url.path == "/repos/octocat/hello-world/git/trees/abc123":
+            assert request.url.params["recursive"] == "1"
+            return httpx.Response(200, json={"tree": [{"path": "app.py", "type": "blob", "size": 12}]})
+        if request.url.path == "/repos/octocat/hello-world/contents/app.py":
+            assert request.url.params["ref"] == "main"
+            return httpx.Response(200, json={"encoding": "base64", "content": "cHJpbnQoJ2hlbGxvJykK"})
+        return httpx.Response(404)
+
+    async def run() -> None:
+        service = GitHubAppService(transport=httpx.MockTransport(handler))
+        files = await service.get_repository_source_files("server-token", "octocat", "hello-world", "main")
+        assert len(files) == 1
+        assert files[0].path == "app.py"
+        assert "hello" in files[0].content
+
+    asyncio.run(run())
+
+
 def test_callback_inputs_are_required() -> None:
     assert "code" in {"code", "state"}

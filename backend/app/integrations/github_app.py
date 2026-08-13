@@ -262,9 +262,39 @@ class GitHubAppService:
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
-        tree_url = f"{self.base_url}/repos/{owner}/{repository}/git/trees/{quote(branch, safe='')}"
         try:
             async with httpx.AsyncClient(timeout=20.0, transport=self.transport) as client:
+                ref_response = await client.get(
+                    f"{self.base_url}/repos/{owner}/{repository}/git/refs/heads/{quote(branch, safe='')}",
+                    headers=headers,
+                )
+                if ref_response.status_code == 401:
+                    raise GitHubAppError("Invalid or expired GitHub access token", 401)
+                if ref_response.is_error:
+                    raise GitHubAppError("Failed to fetch GitHub repository ref", 502)
+                ref_data = ref_response.json()
+                object_sha = str(ref_data.get("object", {}).get("sha") or "")
+                object_type = str(ref_data.get("object", {}).get("type") or "")
+                if not object_sha:
+                    raise GitHubAppError("Failed to resolve GitHub repository branch SHA", 502)
+
+                tree_sha = object_sha
+                if object_type == "commit":
+                    commit_response = await client.get(
+                        f"{self.base_url}/repos/{owner}/{repository}/commits/{object_sha}",
+                        headers=headers,
+                    )
+                    if commit_response.status_code == 401:
+                        raise GitHubAppError("Invalid or expired GitHub access token", 401)
+                    if commit_response.is_error:
+                        raise GitHubAppError("Failed to resolve GitHub repository tree SHA", 502)
+                    commit_data = commit_response.json()
+                    tree_sha = str(commit_data.get("tree", {}).get("sha") or "")
+
+                if not tree_sha:
+                    raise GitHubAppError("Failed to resolve GitHub repository tree SHA", 502)
+
+                tree_url = f"{self.base_url}/repos/{owner}/{repository}/git/trees/{tree_sha}"
                 tree_response = await client.get(tree_url, params={"recursive": "1"}, headers=headers)
                 if tree_response.status_code == 401:
                     raise GitHubAppError("Invalid or expired GitHub access token", 401)
