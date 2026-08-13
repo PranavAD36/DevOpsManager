@@ -50,7 +50,7 @@ def test_repository_source_files_resolve_branch_to_tree_sha() -> None:
         if request.url.path == "/repos/octocat/hello-world/git/refs/heads/main":
             return httpx.Response(200, json={"ref": "refs/heads/main", "object": {"type": "commit", "sha": "abc123"}})
         if request.url.path == "/repos/octocat/hello-world/commits/abc123":
-            return httpx.Response(200, json={"tree": {"sha": "tree456"}})
+            return httpx.Response(200, json={"commit": {"tree": {"sha": "tree456"}}})
         if request.url.path == "/repos/octocat/hello-world/git/trees/tree456":
             assert request.url.params["recursive"] == "1"
             return httpx.Response(200, json={"tree": [{"path": "app.py", "type": "blob", "size": 12}]})

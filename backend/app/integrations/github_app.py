@@ -289,7 +289,11 @@ class GitHubAppService:
                     if commit_response.is_error:
                         raise GitHubAppError("Failed to resolve GitHub repository tree SHA", 502)
                     commit_data = commit_response.json()
-                    tree_sha = str(commit_data.get("tree", {}).get("sha") or "")
+                    tree_sha = str(
+                        (commit_data.get("commit", {}).get("tree", {}).get("sha")
+                         or commit_data.get("tree", {}).get("sha")
+                         or "")
+                    )
 
                 if not tree_sha:
                     raise GitHubAppError("Failed to resolve GitHub repository tree SHA", 502)
