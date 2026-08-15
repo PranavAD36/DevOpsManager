@@ -7,24 +7,24 @@ client = TestClient(app)
 
 
 def test_analyze_repo_success(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(settings, "openrouter_api_key", "test-key")
 
-    async def fake_openai(prompt: str) -> str:
+    async def fake_openrouter(prompt: str) -> str:
         return '{"summary":"Reviewed repository","issues":[]}'
 
-    monkeypatch.setattr(ai_service, "_call_openai", fake_openai)
+    monkeypatch.setattr(ai_service, "_call_openrouter", fake_openrouter)
     payload = {
         "repo_name": "DevOpsManager",
         "branch": "main",
         "prompt": "Test AI analysis",
-        "provider": "openai"
+        "provider": "openrouter"
     }
     response = client.post("/v1/ai/analyze-repo", json=payload)
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "success"
     assert data["repo_name"] == "DevOpsManager"
-    assert data["provider_used"] == "openai"
+    assert data["provider_used"] == "openrouter"
     assert "summary" in data
     assert isinstance(data["recommendations"], list)
 

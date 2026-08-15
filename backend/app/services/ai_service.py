@@ -50,10 +50,10 @@ async def analyze_repository_content(
 ) -> RepositoryAnalysisResult:
     selected_provider = (provider or settings.ai_provider).lower()
     prompt = _build_prompt(repository_name, language, files)
-    if selected_provider == "openai":
-        if not settings.openai_api_key:
-            raise AIProviderError("OpenAI API key is not configured")
-        content = await _call_openai(prompt)
+    if selected_provider == "openrouter":
+        if not settings.openrouter_api_key:
+            raise AIProviderError("OPENROUTER_API_KEY is not configured")
+        content = await _call_openrouter(prompt)
     elif selected_provider == "gemini":
         if not settings.gemini_api_key:
             raise AIProviderError("Gemini API key is not configured")
@@ -79,9 +79,9 @@ def _build_prompt(repository_name: str, language: str | None, files: list[object
     )
 
 
-async def _call_openai(prompt: str) -> str:
+async def _call_openrouter(prompt: str) -> str:
     payload = {
-        "model": settings.openai_model,
+        "model": settings.openrouter_model,
         "temperature": 0,
         "response_format": {"type": "json_object"},
         "messages": [
@@ -92,18 +92,24 @@ async def _call_openai(prompt: str) -> str:
     try:
         async with httpx.AsyncClient(timeout=90.0) as client:
             response = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
                 json=payload,
             )
     except httpx.HTTPError as exc:
-        raise AIProviderError("OpenAI request failed") from exc
+        raise AIProviderError("OpenRouter request failed") from exc
     if response.is_error:
-        raise AIProviderError(f"OpenAI returned HTTP {response.status_code}")
+        if response.status_code == 401:
+            raise AIProviderError("OpenRouter authentication failed")
+        if response.status_code == 429:
+            raise AIProviderError("OpenRouter rate limit exceeded")
+        if response.status_code in (404, 422):
+            raise AIProviderError("OpenRouter model unavailable")
+        raise AIProviderError(f"OpenRouter returned HTTP {response.status_code}")
     try:
         return str(response.json()["choices"][0]["message"]["content"])
     except (KeyError, IndexError, TypeError, ValueError) as exc:
-        raise AIProviderError("OpenAI returned an invalid response") from exc
+        raise AIProviderError("OpenRouter returned an invalid response") from exc
 
 
 async def _call_gemini(prompt: str) -> str:
