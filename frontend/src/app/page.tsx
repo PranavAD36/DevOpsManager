@@ -30,6 +30,7 @@ export default function HomePage() {
             <Link className="rounded-lg bg-cyan-400 px-4 py-2 font-semibold text-slate-950 transition hover:bg-cyan-300" href="/github/connect">Connect GitHub</Link>
           </nav>
         </header>
+        
 
         <section className="grid gap-10 py-14 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
           <div>
