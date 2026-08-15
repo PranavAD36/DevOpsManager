@@ -61,10 +61,13 @@ class GitHubAppService:
         self.transport = transport
 
     def get_authorization_url(self, state: str) -> str:
-        client_id = settings.github_client_id or "mock_client_id"
+        client_id = settings.github_client_id
+        redirect_uri = getattr(settings, "github_callback_url", settings.github_redirect_uri)
+        if not client_id or client_id.startswith("mock_") or client_id.startswith("your-"):
+            return f"{redirect_uri}?code=mock_auth_code&state={state}"
         params = {
             "client_id": client_id,
-            "redirect_uri": getattr(settings, "github_callback_url", settings.github_redirect_uri),
+            "redirect_uri": redirect_uri,
             "state": state,
             "scope": "repo,read:user",
         }
@@ -129,7 +132,7 @@ class GitHubAppService:
         return GitHubOAuthToken(access_token=access_token, expires_at=expires_at)
 
     async def get_authenticated_user(self, access_token: str) -> GitHubUser:
-        if access_token.startswith("mock_token_"):
+        if _is_mock_token(access_token):
             return GitHubUser(id=12345678, login="devopsmanager-user")
 
         headers = {
@@ -174,7 +177,7 @@ class GitHubAppService:
         ]
 
     async def list_repositories(self, access_token: str) -> list[GitHubAccessibleRepository]:
-        if access_token.startswith("mock_token_"):
+        if _is_mock_token(access_token):
             return [
                 GitHubAccessibleRepository(
                     id=101,
@@ -257,6 +260,17 @@ class GitHubAppService:
         max_file_bytes: int = 12000,
         max_total_bytes: int = 120000,
     ) -> list[GitHubRepositoryFile]:
+        if _is_mock_token(access_token):
+            return [
+                GitHubRepositoryFile(
+                    path="app/main.py",
+                    content="from fastapi import FastAPI\napp = FastAPI()\n@app.get('/')\ndef index(): return {'status': 'ok'}\n",
+                ),
+                GitHubRepositoryFile(
+                    path="README.md",
+                    content="# Sample Project\nThis is a sample project for testing.\n",
+                ),
+            ]
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/vnd.github+json",
@@ -365,3 +379,11 @@ def _is_relevant_source_path(path: str) -> bool:
             ".md", ".dockerfile",
         )
     ) or filename in {"dockerfile", "makefile", "readme"}
+
+
+def _is_mock_token(token: str) -> bool:
+    client_id = settings.github_client_id
+    if not client_id or client_id.startswith("mock_") or client_id.startswith("your-"):
+        return True
+    return token.startswith("mock_token_")
+

@@ -78,22 +78,21 @@ async def github_callback(
     error_description: str | None = Query(default=None),
     oauth_state: str | None = Cookie(default=None, alias=STATE_COOKIE),
 ) -> RedirectResponse:
+    frontend_base = settings.allowed_origins[0].rstrip("/")
     if error:
-        raise HTTPException(status_code=400, detail=error_description or "GitHub authorization was denied")
+        err_msg = error_description or "GitHub authorization was denied"
+        return RedirectResponse(url=f"{frontend_base}/github/connect?error={err_msg}", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
     stored_state = oauth_state or request.cookies.get(STATE_COOKIE)
     if not code or not state or not stored_state or not secrets.compare_digest(state, stored_state):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid GitHub authorization callback",
-        )
+        return RedirectResponse(url=f"{frontend_base}/github/connect?error=Invalid+GitHub+authorization+callback", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
     try:
         access_token = await github_app_service.exchange_code_for_token(code)
     except GitHubAppError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        return RedirectResponse(url=f"{frontend_base}/github/connect?error={str(exc)}", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
-    redirect_url = f"{settings.allowed_origins[0].rstrip('/')}/github/connect?status=connected"
+    redirect_url = f"{frontend_base}/github/connect?status=connected"
     response = RedirectResponse(url=redirect_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
     response.set_cookie(
         key="github_access_token",
