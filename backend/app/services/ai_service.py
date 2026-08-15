@@ -92,14 +92,18 @@ async def _call_openai(prompt: str) -> str:
     try:
         async with httpx.AsyncClient(timeout=90.0) as client:
             response = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.openai_api_key}",
+                    "HTTP-Referer": "http://localhost:8000",
+                    "X-Title": "DevOpsManager"
+                },
                 json=payload,
             )
     except httpx.HTTPError as exc:
         raise AIProviderError("OpenAI request failed") from exc
     if response.is_error:
-        raise AIProviderError(f"OpenAI returned HTTP {response.status_code}")
+        raise AIProviderError(f"OpenRouter returned HTTP {response.status_code}: {response.text}")
     try:
         return str(response.json()["choices"][0]["message"]["content"])
     except (KeyError, IndexError, TypeError, ValueError) as exc:

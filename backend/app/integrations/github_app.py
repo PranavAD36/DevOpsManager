@@ -301,7 +301,7 @@ class GitHubAppService:
                     if commit_response.status_code == 401:
                         raise GitHubAppError("Invalid or expired GitHub access token", 401)
                     if commit_response.is_error:
-                        raise GitHubAppError("Failed to resolve GitHub repository tree SHA", 502)
+                        raise GitHubAppError(f"Failed to resolve GitHub repository tree SHA (HTTP {commit_response.status_code}): {commit_response.text}", 502)
                     commit_data = commit_response.json()
                     tree_sha = str(
                         (commit_data.get("commit", {}).get("tree", {}).get("sha")
@@ -310,14 +310,14 @@ class GitHubAppService:
                     )
 
                 if not tree_sha:
-                    raise GitHubAppError("Failed to resolve GitHub repository tree SHA", 502)
+                    raise GitHubAppError("Failed to resolve GitHub repository tree SHA: empty tree_sha returned", 502)
 
                 tree_url = f"{self.base_url}/repos/{owner}/{repository}/git/trees/{tree_sha}"
                 tree_response = await client.get(tree_url, params={"recursive": "1"}, headers=headers)
                 if tree_response.status_code == 401:
                     raise GitHubAppError("Invalid or expired GitHub access token", 401)
                 if tree_response.is_error:
-                    raise GitHubAppError("Failed to fetch GitHub repository tree", 502)
+                    raise GitHubAppError(f"Failed to fetch GitHub repository tree (HTTP {tree_response.status_code}): {tree_response.text}", 502)
                 tree = tree_response.json()
 
                 files: list[GitHubRepositoryFile] = []
