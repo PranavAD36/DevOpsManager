@@ -10,7 +10,7 @@ class AnalyzeRepoRequest(BaseModel):
         default=None,
         json_schema_extra={"example": "Analyze security, architecture, and code quality."}
     )
-    provider: Literal["openai", "gemini"] = Field(default="openai")
+    provider: Literal["openrouter", "gemini"] = Field(default="openrouter")
 
 
 class AnalyzeRepoResponse(BaseModel):

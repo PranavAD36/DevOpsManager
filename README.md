@@ -1,6 +1,6 @@
 # DevOpsManager
 
-DevOpsManager is a production-grade, AI-powered software development and repository intelligence platform. It seamlessly connects GitHub repositories, fetches source trees, runs multi-provider LLM analysis (OpenAI & Google Gemini), detects code vulnerabilities & quality issues, generates proposed code corrections, and provides an interactive UI for local code fix review and approval.
+DevOpsManager is a production-grade, AI-powered software development and repository intelligence platform. It seamlessly connects GitHub repositories, fetches source trees, runs multi-provider LLM analysis (OpenRouter & Google Gemini), detects code vulnerabilities & quality issues, generates proposed code corrections, and provides an interactive UI for local code fix review and approval.
 
 ---
 
@@ -9,6 +9,7 @@ DevOpsManager is a production-grade, AI-powered software development and reposit
 If you are a new developer or contributor taking over or testing this project, follow these steps to get up and running:
 
 ### Prerequisites
+
 - **Python**: 3.11+ (Python 3.13 tested)
 - **Node.js**: 18.x or 20.x
 - **Database**: PostgreSQL (or Supabase PostgreSQL)
@@ -30,9 +31,10 @@ ENVIRONMENT=development
 DEBUG=true
 
 # AI Provider Keys
-OPENAI_API_KEY=your-openai-api-key
+OPENROUTER_API_KEY=your-openrouter-api-key
 GEMINI_API_KEY=your-gemini-api-key
-AI_PROVIDER=openai
+AI_PROVIDER=openrouter
+OPENROUTER_MODEL=meta-llama/llama-3.1-8b-instruct:free
 
 # Supabase PostgreSQL Connection String (Session Pooler recommended for Windows)
 DATABASE_URL=postgresql+asyncpg://postgres.wrbgyhgpyysslbafarbz:YOUR_PASSWORD@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres
@@ -105,16 +107,16 @@ npm run build
 
 ## 🎯 Completed Feature Roadmap (Phases 1 - 7)
 
-| Phase | Feature Module | Status | Highlights |
-|---|---|---|---|
-| **Phase 1** | Project Foundation | ✅ Complete | FastAPI backend, Next.js 14 frontend, SQLAlchemy async ORM, Alembic migrations. |
-| **Phase 2** | Core Data & API | ✅ Complete | Full CRUD for Projects, Repositories, Analysis Runs, and Issues. |
-| **Phase 3** | Analysis Workflow | ✅ Complete | Relationship cascade fixes, workflow state transitions, SQLite test suite. |
-| **Phase 4** | GitHub App Integration | ✅ Complete | GitHub OAuth flow, server-side token cookie handling, auto repository-to-project flow. |
-| **Phase 5** | Real Repository Analysis Engine | ✅ Complete | Recursively fetches source tree from GitHub REST API, triggers LLM code review, creates structured `Issue` records. |
-| **Phase 6** | AI Fix & Code Generation | ✅ Complete | AI explains *why* issues occur, provides human-readable `suggested_fix`, and generates `corrected_code` snippets. |
-| **Phase 7** | Safe Code Fixing & Approval UI | ✅ Complete | Interactive `DiffViewer` component, inline fix customization, `Approve Fix` and `Reject Fix` local approval engine. |
-| **Phase 8** | GitHub Write-Back Workflow | ⏳ *Next Horizon* | Automatic Git branch creation, committing approved code fixes, and opening GitHub Pull Requests. |
+| Phase       | Feature Module                  | Status            | Highlights                                                                                                          |
+| ----------- | ------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Phase 1** | Project Foundation              | ✅ Complete       | FastAPI backend, Next.js 14 frontend, SQLAlchemy async ORM, Alembic migrations.                                     |
+| **Phase 2** | Core Data & API                 | ✅ Complete       | Full CRUD for Projects, Repositories, Analysis Runs, and Issues.                                                    |
+| **Phase 3** | Analysis Workflow               | ✅ Complete       | Relationship cascade fixes, workflow state transitions, SQLite test suite.                                          |
+| **Phase 4** | GitHub App Integration          | ✅ Complete       | GitHub OAuth flow, server-side token cookie handling, auto repository-to-project flow.                              |
+| **Phase 5** | Real Repository Analysis Engine | ✅ Complete       | Recursively fetches source tree from GitHub REST API, triggers LLM code review, creates structured `Issue` records. |
+| **Phase 6** | AI Fix & Code Generation        | ✅ Complete       | AI explains _why_ issues occur, provides human-readable `suggested_fix`, and generates `corrected_code` snippets.   |
+| **Phase 7** | Safe Code Fixing & Approval UI  | ✅ Complete       | Interactive `DiffViewer` component, inline fix customization, `Approve Fix` and `Reject Fix` local approval engine. |
+| **Phase 8** | GitHub Write-Back Workflow      | ⏳ _Next Horizon_ | Automatic Git branch creation, committing approved code fixes, and opening GitHub Pull Requests.                    |
 
 ---
 
@@ -158,6 +160,7 @@ DevOpsManager/
 ## 🔮 Next Horizon: Phase 8 (GitHub Write-Back Workflow)
 
 Once code fixes are approved in Phase 7:
+
 1. **Feature Branch Creation**: Create `devopsmanager/fix-issue-#<id>` branch via GitHub REST API.
 2. **Git Commit**: Commit approved `corrected_code` to the repository branch.
 3. **Pull Request**: Automatically open a Pull Request targeting `main`/`master` branch on GitHub.

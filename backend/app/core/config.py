@@ -9,10 +9,10 @@ class Settings(BaseSettings):
     environment: str = "development"
     debug: bool = True
     allowed_origins: list[str] = ["http://localhost:3000"]
-    openai_api_key: str | None = None
+    openrouter_api_key: str | None = None
     gemini_api_key: str | None = None
-    ai_provider: str = "openai"
-    openai_model: str = "gpt-4o-mini"
+    ai_provider: str = "openrouter"
+    openrouter_model: str = "deepseek/deepseek-chat-v3-0324:free"
     gemini_model: str = "gemini-1.5-flash"
     github_token: str | None = None
     github_client_id: str | None = None
