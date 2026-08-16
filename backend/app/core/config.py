@@ -8,7 +8,11 @@ class Settings(BaseSettings):
     app_name: str = "DevOpsManager"
     environment: str = "development"
     debug: bool = True
-    allowed_origins: list[str] = ["http://localhost:3000"]
+    allowed_origins: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://dev-ops-manager.vercel.app",
+    ]
     openrouter_api_key: str | None = None
     gemini_api_key: str | None = None
     ai_provider: str = "openrouter"
