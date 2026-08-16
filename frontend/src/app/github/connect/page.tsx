@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { API_BASE_URL } from '@/lib/constants';
 
 interface GitHubUser {
   login: string;
@@ -46,8 +47,8 @@ export default function GitHubConnectPage() {
         setLoading(true);
         // Parallel fetch for maximum speed
         const [meRes, reposRes] = await Promise.all([
-          fetch('http://localhost:8000/v1/github/me', { credentials: 'include' }),
-          fetch('http://localhost:8000/v1/github/repositories', { credentials: 'include' }),
+          fetch(`${API_BASE_URL}/v1/github/me`, { credentials: 'include' }),
+          fetch(`${API_BASE_URL}/v1/github/repositories`, { credentials: 'include' }),
         ]);
 
         if (meRes.ok) {
@@ -74,7 +75,7 @@ export default function GitHubConnectPage() {
   async function handleAuthorize() {
     try {
       setError(null);
-      const res = await fetch('http://localhost:8000/v1/github/authorize', {
+      const res = await fetch(`${API_BASE_URL}/v1/github/authorize`, {
         credentials: 'include',
       });
       if (!res.ok) {
@@ -91,7 +92,7 @@ export default function GitHubConnectPage() {
     try {
       setBusyRepo(repo.full_name);
       setError(null);
-      const res = await fetch('http://localhost:8000/v1/github/repositories/connect', {
+      const res = await fetch(`${API_BASE_URL}/v1/github/repositories/connect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

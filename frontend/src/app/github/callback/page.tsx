@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { API_BASE_URL } from '@/lib/constants';
 
 export default function GitHubCallbackPage() {
   const searchParams = useSearchParams();
@@ -12,7 +13,7 @@ export default function GitHubCallbackPage() {
     const error = searchParams.get('error');
     const errorDesc = searchParams.get('error_description');
 
-    const backendUrl = new URL('http://localhost:8000/v1/github/callback');
+    const backendUrl = new URL(`${API_BASE_URL}/v1/github/callback`);
     if (code) backendUrl.searchParams.set('code', code);
     if (state) backendUrl.searchParams.set('state', state);
     if (error) backendUrl.searchParams.set('error', error);
