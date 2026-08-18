@@ -78,7 +78,7 @@ async def github_callback(
     error_description: str | None = Query(default=None),
     oauth_state: str | None = Cookie(default=None, alias=STATE_COOKIE),
 ) -> RedirectResponse:
-    frontend_base = settings.allowed_origins[0].rstrip("/")
+    frontend_base = settings.frontend_url.rstrip("/")
     if error:
         err_msg = error_description or "GitHub authorization was denied"
         return RedirectResponse(url=f"{frontend_base}/github/connect?error={err_msg}", status_code=status.HTTP_307_TEMPORARY_REDIRECT)

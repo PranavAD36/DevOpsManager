@@ -1,6 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +13,10 @@ class Settings(BaseSettings):
         "http://localhost:3001",
         "https://dev-ops-manager.vercel.app",
     ]
+    frontend_url: str = Field(
+        default="http://localhost:3000",
+        validation_alias=AliasChoices("FRONTEND_URL", "frontend_url"),
+    )
     openrouter_api_key: str | None = None
     gemini_api_key: str | None = None
     ai_provider: str = "openrouter"
