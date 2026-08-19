@@ -21,6 +21,12 @@ CONNECTION_COOKIE = "devopsmanager_github_connection"
 STATE_COOKIE = "github_oauth_state"
 
 
+def _cookie_options() -> dict[str, object]:
+    if settings.frontend_url.startswith("https://"):
+        return {"samesite": "none", "secure": True}
+    return {"samesite": "lax", "secure": False}
+
+
 class ConnectRepositoryRequest(BaseModel):
     full_name: str = Field(min_length=1, max_length=511)
     owner: str | None = None
@@ -62,8 +68,7 @@ async def authorize_github(response: Response) -> dict[str, str]:
         value=state,
         httponly=True,
         max_age=600,
-        samesite="lax",
-        secure=False,
+        **_cookie_options(),
     )
 
     return {"authorization_url": auth_url, "state": state}
@@ -99,8 +104,7 @@ async def github_callback(
         value=access_token,
         httponly=True,
         max_age=86400 * 7,
-        samesite="lax",
-        secure=False,
+        **_cookie_options(),
     )
     response.delete_cookie(STATE_COOKIE)
     return response
