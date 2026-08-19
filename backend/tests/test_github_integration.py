@@ -1,10 +1,14 @@
+import asyncio
 from datetime import datetime, timezone
 from uuid import uuid4
 
 import httpx
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from app.api.v1 import core_routes
+from app.api.v1.github_routes import _create_signed_oauth_state, _verify_signed_oauth_state, github_callback, github_app_service
+from app.core.config import settings
 from app.integrations.github import GitHubIntegrationError, GitHubRepositoryMetadata, parse_github_repository_url
 from app.main import app
 
@@ -148,3 +152,59 @@ def test_github_oauth_flow_endpoints() -> None:
         assert "repository_id" in res_json
 
         client.delete(f"/v1/projects/{res_json['project_id']}")
+
+
+def test_signed_oauth_state_is_valid_and_tamper_resistant(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "github_client_secret", "test-signing-secret")
+    state = _create_signed_oauth_state()
+    assert _verify_signed_oauth_state(state) is True
+    assert _verify_signed_oauth_state(state + "tampered") is False
+    assert _verify_signed_oauth_state("") is False
+
+
+def test_expired_signed_oauth_state_is_rejected(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "github_client_secret", "test-signing-secret")
+    monkeypatch.setattr("app.api.v1.github_routes.time.time", lambda: 2_000_000_000)
+    state = _create_signed_oauth_state()
+    monkeypatch.setattr("app.api.v1.github_routes.time.time", lambda: 2_000_000_601)
+    assert _verify_signed_oauth_state(state) is False
+
+
+def test_callback_accepts_valid_signed_state_without_cookie(monkeypatch) -> None:
+    async def run() -> None:
+        monkeypatch.setattr(settings, "github_client_secret", "test-signing-secret")
+        monkeypatch.setattr(settings, "frontend_url", "https://dev-ops-manager.vercel.app")
+
+        async def exchange_code_for_token(code: str) -> str:
+            assert code == "oauth-code"
+            return "access-token"
+
+        monkeypatch.setattr(github_app_service, "exchange_code_for_token", exchange_code_for_token)
+        response = await github_callback(
+            Request({"type": "http", "headers": []}),
+            code="oauth-code",
+            state=_create_signed_oauth_state(),
+            error=None,
+            error_description=None,
+        )
+        assert response.headers["location"] == "https://dev-ops-manager.vercel.app/github/connect?status=connected"
+
+    asyncio.run(run())
+
+
+def test_callback_rejects_missing_or_invalid_signed_state(monkeypatch) -> None:
+    async def run() -> None:
+        monkeypatch.setattr(settings, "github_client_secret", "test-signing-secret")
+        for invalid_state in (None, "invalid-state"):
+            response = await github_callback(
+                Request({"type": "http", "headers": []}),
+                code="oauth-code",
+                state=invalid_state,
+                    error=None,
+                    error_description=None,
+            )
+            assert response.headers["location"].endswith(
+                "/github/connect?error=Invalid+GitHub+authorization+callback"
+            )
+
+    asyncio.run(run())

@@ -1,8 +1,13 @@
+import base64
+import hashlib
+import hmac
+import json
 import secrets
+import time
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -18,13 +23,50 @@ router = APIRouter(prefix="/github", tags=["github"])
 github_app_service = GitHubAppService()
 
 CONNECTION_COOKIE = "devopsmanager_github_connection"
-STATE_COOKIE = "github_oauth_state"
+OAUTH_STATE_TTL_SECONDS = 600
 
 
 def _cookie_options() -> dict[str, object]:
     if settings.frontend_url.startswith("https://"):
         return {"samesite": "none", "secure": True}
     return {"samesite": "lax", "secure": False}
+
+
+def _oauth_state_secret() -> bytes:
+    if not settings.github_client_secret:
+        raise ValueError("GitHub OAuth signing secret is not configured")
+    return settings.github_client_secret.encode("utf-8")
+
+
+def _create_signed_oauth_state() -> str:
+    payload = {
+        "nonce": secrets.token_urlsafe(32),
+        "issued_at": int(time.time()),
+    }
+    encoded_payload = base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    ).rstrip(b"=")
+    signature = hmac.new(_oauth_state_secret(), encoded_payload, hashlib.sha256).digest()
+    encoded_signature = base64.urlsafe_b64encode(signature).rstrip(b"=")
+    return f"{encoded_payload.decode('ascii')}.{encoded_signature.decode('ascii')}"
+
+
+def _verify_signed_oauth_state(state: str) -> bool:
+    try:
+        encoded_payload, encoded_signature = state.split(".", 1)
+        expected_signature = hmac.new(
+            _oauth_state_secret(), encoded_payload.encode("ascii"), hashlib.sha256
+        ).digest()
+        provided_signature = base64.urlsafe_b64decode(encoded_signature + "=" * (-len(encoded_signature) % 4))
+        if not hmac.compare_digest(provided_signature, expected_signature):
+            return False
+        payload = json.loads(
+            base64.urlsafe_b64decode(encoded_payload + "=" * (-len(encoded_payload) % 4))
+        )
+        issued_at = int(payload["issued_at"])
+        return bool(payload["nonce"]) and 0 <= time.time() - issued_at <= OAUTH_STATE_TTL_SECONDS
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError, UnicodeDecodeError):
+        return False
 
 
 class ConnectRepositoryRequest(BaseModel):
@@ -60,16 +102,8 @@ def _get_access_token(request: Request) -> str:
 
 @router.get("/authorize")
 async def authorize_github(response: Response) -> dict[str, str]:
-    state = secrets.token_urlsafe(32)
+    state = _create_signed_oauth_state()
     auth_url = github_app_service.get_authorization_url(state)
-
-    response.set_cookie(
-        key=STATE_COOKIE,
-        value=state,
-        httponly=True,
-        max_age=600,
-        **_cookie_options(),
-    )
 
     return {"authorization_url": auth_url, "state": state}
 
@@ -81,15 +115,13 @@ async def github_callback(
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
     error_description: str | None = Query(default=None),
-    oauth_state: str | None = Cookie(default=None, alias=STATE_COOKIE),
 ) -> RedirectResponse:
     frontend_base = settings.frontend_url.rstrip("/")
     if error:
         err_msg = error_description or "GitHub authorization was denied"
         return RedirectResponse(url=f"{frontend_base}/github/connect?error={err_msg}", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
-    stored_state = oauth_state or request.cookies.get(STATE_COOKIE)
-    if not code or not state or not stored_state or not secrets.compare_digest(state, stored_state):
+    if not code or not state or not _verify_signed_oauth_state(state):
         return RedirectResponse(url=f"{frontend_base}/github/connect?error=Invalid+GitHub+authorization+callback", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
     try:
@@ -106,7 +138,6 @@ async def github_callback(
         max_age=86400 * 7,
         **_cookie_options(),
     )
-    response.delete_cookie(STATE_COOKIE)
     return response
 
 
