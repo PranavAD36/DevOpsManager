@@ -139,8 +139,15 @@ async def _call_gemini(prompt: str) -> str:
 
 
 def _parse_analysis_response(content: str) -> RepositoryAnalysisResult:
-    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip(), flags=re.IGNORECASE)
+    start_idx = content.find('{')
+    end_idx = content.rfind('}')
+    
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        cleaned = content[start_idx:end_idx+1]
+    else:
+        cleaned = content.strip()
+
     try:
         return RepositoryAnalysisResult.model_validate(json.loads(cleaned))
     except (json.JSONDecodeError, ValueError) as exc:
-        raise AIProviderError("AI provider returned invalid structured analysis") from exc
+        raise AIProviderError(f"AI provider returned invalid structured analysis: {exc}. Raw output snippet: {content[:200]}") from exc
