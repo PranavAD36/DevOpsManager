@@ -38,6 +38,8 @@ export default function GitHubConnectPage() {
   const errorParam = searchParams.get('error');
 
   useEffect(() => {
+    console.log('[GitHub OAuth] status:', statusParam);
+    console.log('[GitHub OAuth] API base URL:', API_BASE_URL);
     if (errorParam) {
       setError(errorParam);
     }
@@ -45,25 +47,33 @@ export default function GitHubConnectPage() {
     async function loadGitHubData() {
       try {
         setLoading(true);
-        // Parallel fetch for maximum speed
-        const [meRes, reposRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/v1/github/me`, { credentials: 'include' }),
-          fetch(`${API_BASE_URL}/v1/github/repositories`, { credentials: 'include' }),
-        ]);
+        const meRes = await fetch(`${API_BASE_URL}/v1/github/me`, { credentials: 'include' });
+        console.log('[GitHub OAuth] /v1/github/me status:', meRes.status);
 
         if (meRes.ok) {
           const userData: GitHubUser = await meRes.json();
           setUser(userData);
         } else {
           setUser(null);
+          setRepos([]);
+          if (meRes.status === 401) {
+            setError('GitHub authorization is no longer active. Please reconnect GitHub.');
+          }
+          return;
         }
 
+        const reposRes = await fetch(`${API_BASE_URL}/v1/github/repositories`, { credentials: 'include' });
+        console.log('[GitHub OAuth] /v1/github/repositories status:', reposRes.status);
         if (reposRes.ok) {
           const repoData: GitHubRepo[] = await reposRes.json();
           setRepos(repoData);
+        } else {
+          setRepos([]);
+          setError('GitHub account connected, but repositories could not be loaded.');
         }
       } catch (err: unknown) {
         console.error('Failed to load GitHub session:', err);
+        setError('Unable to load your GitHub connection. Please try again.');
       } finally {
         setLoading(false);
       }
