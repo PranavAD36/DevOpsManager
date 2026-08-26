@@ -40,11 +40,11 @@ OPENROUTER_MODEL=meta-llama/llama-3.1-8b-instruct:free
 DATABASE_URL=postgresql+asyncpg://postgres.wrbgyhgpyysslbafarbz:YOUR_PASSWORD@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres
 
 # GitHub App Integration
-GITHUB_APP_ID=4530123
-GITHUB_CLIENT_ID=your-github-client-id
-GITHUB_CLIENT_SECRET=your-github-client-secret
-GITHUB_PRIVATE_KEY_PATH=secrets/github-app-private-key.pem
-GITHUB_REDIRECT_URI=http://localhost:8000/v1/github/callback
+GITHUB_APP_ID=Id
+GITHUB_CLIENT_ID
+GITHUB_CLIENT_SECRET
+GITHUB_PRIVATE_KEY_PATH
+GITHUB_REDIRECT_URI
 ```
 
 > 💡 **Supabase Connection Note**: If connecting to a Supabase PostgreSQL instance from Windows, always use the **Supabase Session Pooler** hostname (`aws-0-<region>.pooler.supabase.com:5432`) with the `postgres.<project-ref>` user format to ensure IPv4 DNS resolution compatibility.
@@ -118,7 +118,7 @@ npm run build
 | **Phase 7** | Safe Code Fixing & Approval UI  | ✅ Complete       | Interactive `DiffViewer` component, inline fix customization, `Approve Fix` and `Reject Fix` local approval engine. |
 | **Phase 8** | GitHub Write-Back Workflow      | ⏳ _Next Horizon_ | Automatic Git branch creation, committing approved code fixes, and opening GitHub Pull Requests.                    |
 
----
+----> ke hve apde analysis to complete work kre che but 
 
 ## 📂 Codebase Structure
 

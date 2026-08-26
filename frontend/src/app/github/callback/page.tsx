@@ -22,11 +22,11 @@ export default function GitHubCallbackPage() {
   }, [searchParams]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 py-16 text-slate-100">
+    <main className="flex min-h-screen items-center justify-center bg-[#09090b] px-6">
       <div className="text-center">
-        <div className="mx-auto w-12 h-12 rounded-full border-4 border-cyan-500 border-t-transparent animate-spin mb-4" />
-        <h1 className="text-xl font-semibold text-white">Completing GitHub Authorization...</h1>
-        <p className="mt-2 text-sm text-slate-400">Please wait while DevOpsManager verifies your credentials.</p>
+        <div className="mx-auto w-8 h-8 rounded-full border-2 border-cyan-500 border-t-transparent animate-spin mb-4" />
+        <p className="text-sm font-medium text-white">Completing authorization…</p>
+        <p className="mt-1 text-xs text-slate-500 font-mono">Redirecting to backend</p>
       </div>
     </main>
   );

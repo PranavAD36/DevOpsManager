@@ -7,10 +7,81 @@
 }
 
 body {
-  @apply min-h-screen bg-slate-950 text-slate-100 antialiased;
+  @apply min-h-screen bg-[#09090b] text-slate-200 antialiased;
 }
 
-.form-input,
-.form-select {
-  @apply mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none focus:border-cyan-400;
+/* Ambient grain overlay — fixed, pointer-events-none */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+}
+
+/* Ambient cyan glow — top-right corner */
+body::before {
+  content: '';
+  position: fixed;
+  top: -200px;
+  right: -100px;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(34,211,238,0.04) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Subtle left glow */
+body::after {
+  content: '';
+  position: fixed;
+  bottom: -200px;
+  left: -100px;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(34,211,238,0.03) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  ::selection {
+    @apply bg-cyan-500/20 text-cyan-100;
+  }
+}
+
+@layer components {
+  .form-input,
+  .form-select {
+    @apply mt-2 w-full rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2.5 text-slate-200 text-sm outline-none transition-all duration-200 focus:border-cyan-500/60 focus:ring-1 focus:ring-cyan-500/20;
+  }
+  .form-input::placeholder {
+    @apply text-slate-600;
+  }
+  .form-select {
+    @apply appearance-none cursor-pointer;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-lg bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950 transition-all duration-200 hover:bg-cyan-400 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-lg border border-slate-700/80 px-4 py-2.5 text-sm font-medium text-slate-300 transition-all duration-200 hover:border-cyan-500/50 hover:text-cyan-300 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
+  }
+  .card {
+    @apply rounded-xl border border-slate-800/70 bg-slate-900/50 backdrop-blur-sm;
+  }
+  .card-hover {
+    @apply transition-all duration-200 hover:border-slate-700 hover:bg-slate-800/50;
+  }
+  .tag {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
 }
