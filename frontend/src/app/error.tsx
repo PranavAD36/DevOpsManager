@@ -1,7 +1,5 @@
 'use client';
 
-import { useEffect } from 'react';
-
 export default function ErrorBoundary({
   error,
   reset,
@@ -9,42 +7,27 @@ export default function ErrorBoundary({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  useEffect(() => {
-    console.error('Unhandled App Router Error:', error);
-  }, [error]);
-
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 py-16 text-slate-100">
-      <div className="w-full max-w-md rounded-2xl border border-rose-900/50 bg-slate-900/80 p-8 shadow-xl backdrop-blur-sm text-center">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-rose-500/10 text-rose-400">
-          <svg
-            className="h-6 w-6"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth="1.5"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
-            />
+    <main className="flex min-h-screen items-center justify-center bg-[#060913] px-6">
+      <div className="text-center max-w-sm">
+        <div className="mx-auto w-12 h-12 rounded-2xl bg-rose-950/30 border border-rose-900/30 flex items-center justify-center mb-4">
+          <svg className="w-6 h-6 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
           </svg>
         </div>
-
-        <h2 className="text-xl font-semibold text-white">Something went wrong</h2>
-        <p className="mt-2 text-sm text-slate-400">
-          {error.message || 'An unexpected error occurred in DevOpsManager.'}
-        </p>
-
-        <div className="mt-6 flex justify-center gap-3">
-          <button
-            onClick={() => reset()}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-slate-900"
-          >
-            Try again
-          </button>
-        </div>
+        <p className="text-xs font-mono text-rose-400/70 uppercase tracking-widest">Error</p>
+        <h1 className="mt-3 text-xl font-semibold text-white">Something went wrong</h1>
+        <p className="mt-2 text-sm text-slate-500 break-words">{error.message || 'Unknown error'}</p>
+        <button
+          type="button"
+          onClick={reset}
+          className="mt-6 inline-flex items-center gap-2 btn-secondary !py-2.5"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+          </svg>
+          Try again
+        </button>
       </div>
     </main>
   );

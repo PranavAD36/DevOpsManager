@@ -2,23 +2,22 @@ import Link from 'next/link';
 
 export default function NotFound() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 py-16 text-slate-100">
-      <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-xl backdrop-blur-sm text-center">
-        <p className="text-sm font-semibold uppercase tracking-widest text-indigo-400">404 Error</p>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">
-          Page Not Found
-        </h1>
-        <p className="mt-4 text-sm text-slate-400">
-          The requested DevOpsManager page does not exist or has been moved.
+    <main className="flex min-h-screen items-center justify-center bg-[#060913] px-6">
+      <div className="text-center max-w-sm">
+        <p className="text-xs font-mono text-cyan-500/70 uppercase tracking-widest">404</p>
+        <h1 className="mt-3 text-2xl font-semibold text-white tracking-tight">Page not found</h1>
+        <p className="mt-2 text-sm text-slate-500">
+          The requested route does not exist or has been moved.
         </p>
-        <div className="mt-6">
-          <Link
-            href="/"
-            className="inline-flex items-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500"
-          >
-            Return to Home
-          </Link>
-        </div>
+        <Link
+          href="/"
+          className="mt-6 inline-flex items-center gap-2 btn-primary !py-2.5"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+          </svg>
+          Return home
+        </Link>
       </div>
     </main>
   );

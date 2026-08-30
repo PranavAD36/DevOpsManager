@@ -33,12 +33,13 @@ export default function DiffViewer({
   }
 
   return (
-    <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-4 text-xs font-mono">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2 mb-3">
-        <div className="flex items-center gap-2 text-slate-400">
-          <span className="font-semibold text-cyan-400">Diff Preview</span>
+    <div className="mt-3 rounded-xl border border-[#1e2d4a] bg-[#0c111e] overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e2d4a] bg-[#101827]">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-cyan-400">Diff Preview</span>
           {filePath && (
-            <span className="rounded bg-slate-800 px-2 py-0.5 text-slate-300">
+            <span className="rounded-md bg-[#1e2d4a] px-2 py-0.5 text-[11px] font-mono text-slate-400">
               {filePath}
               {lineNumber ? `:${lineNumber}` : ""}
             </span>
@@ -47,7 +48,7 @@ export default function DiffViewer({
         {onSaveFix && (
           <button
             type="button"
-            className="text-cyan-400 hover:text-cyan-300 font-sans text-xs underline"
+            className="text-xs text-cyan-400 hover:text-cyan-300 font-medium transition-colors"
             onClick={() => setIsEditing(!isEditing)}
           >
             {isEditing ? "Cancel Edit" : "Edit Code Fix"}
@@ -55,29 +56,31 @@ export default function DiffViewer({
         )}
       </div>
 
+      {/* Description */}
       {description && (
-        <div className="mb-3 rounded bg-rose-950/30 border border-rose-900/50 p-2.5 text-rose-300">
-          <span className="font-semibold text-rose-400 font-sans block mb-1">
-            - Current Problem Context:
+        <div className="px-4 py-3 border-b border-[#1e2d4a] bg-rose-950/10">
+          <span className="text-xs font-semibold text-rose-400 block mb-1">
+            Problem Context
           </span>
-          <p className="font-sans text-xs text-rose-200">{description}</p>
+          <p className="text-xs text-rose-300/80">{description}</p>
         </div>
       )}
 
+      {/* Code area */}
       {isEditing ? (
-        <div className="space-y-2">
-          <label className="block text-emerald-400 font-sans font-semibold mb-1">
+        <div className="p-4 space-y-3">
+          <label className="block text-emerald-400 text-xs font-semibold">
             Edit Proposed Fix Code:
           </label>
           <textarea
-            className="w-full rounded-lg border border-slate-700 bg-slate-900 p-3 font-mono text-xs text-slate-100 focus:border-cyan-400 focus:outline-none min-h-[120px]"
+            className="min-h-[140px] w-full rounded-lg border border-[#1e2d4a] bg-[#060913] p-3 font-mono text-xs text-slate-200 focus:border-emerald-500/50 focus:outline-none focus:ring-1 focus:ring-emerald-500/20 resize-y"
             value={editedCode}
             onChange={(e) => setEditedCode(e.target.value)}
           />
-          <div className="flex justify-end gap-2 font-sans">
+          <div className="flex justify-end">
             <button
               type="button"
-              className="rounded bg-emerald-600 px-3 py-1.5 font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+              className="btn-accent !py-1.5 !px-4 !text-xs"
               disabled={saving}
               onClick={() => void handleSave()}
             >
@@ -86,11 +89,11 @@ export default function DiffViewer({
           </div>
         </div>
       ) : (
-        <div className="rounded bg-emerald-950/30 border border-emerald-900/50 p-2.5 text-emerald-300">
-          <span className="font-semibold text-emerald-400 font-sans block mb-1">
-            + Proposed Corrected Code:
+        <div className="p-4 bg-emerald-950/10 border-t border-emerald-900/20">
+          <span className="text-xs font-semibold text-emerald-400 block mb-2">
+            + Proposed Corrected Code
           </span>
-          <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-emerald-200">
+          <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-emerald-200/90">
             <code>{correctedCode}</code>
           </pre>
         </div>

@@ -2,7 +2,11 @@
 
 import { useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
+<<<<<<< HEAD
 import { API_BASE_URL } from '@/lib/constants';
+=======
+import { API_BASE_URL } from '../../../lib/constants';
+>>>>>>> f62dd4717c27434e0b5ff190c699b5558fef2949
 
 export default function GitHubCallbackPage() {
   const searchParams = useSearchParams();
@@ -13,7 +17,11 @@ export default function GitHubCallbackPage() {
     const error = searchParams.get('error');
     const errorDesc = searchParams.get('error_description');
 
+<<<<<<< HEAD
     const backendUrl = new URL(`${API_BASE_URL}/v1/github/callback`);
+=======
+    const backendUrl = new URL('/v1/github/callback', API_BASE_URL);
+>>>>>>> f62dd4717c27434e0b5ff190c699b5558fef2949
     if (code) backendUrl.searchParams.set('code', code);
     if (state) backendUrl.searchParams.set('state', state);
     if (error) backendUrl.searchParams.set('error', error);
@@ -23,11 +31,20 @@ export default function GitHubCallbackPage() {
   }, [searchParams]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 py-16 text-slate-100">
+    <main className="flex min-h-screen items-center justify-center bg-[#060913] px-6">
       <div className="text-center">
-        <div className="mx-auto w-12 h-12 rounded-full border-4 border-cyan-500 border-t-transparent animate-spin mb-4" />
-        <h1 className="text-xl font-semibold text-white">Completing GitHub Authorization...</h1>
-        <p className="mt-2 text-sm text-slate-400">Please wait while DevOpsManager verifies your credentials.</p>
+        <div className="relative mx-auto w-14 h-14 mb-5">
+          <div
+            className="absolute inset-0 rounded-full border-2 border-[#1e2d4a] border-t-cyan-400"
+            style={{ animation: 'dm-spin 0.8s linear infinite' }}
+          />
+          <div
+            className="absolute inset-2 rounded-full border-2 border-[#1e2d4a] border-t-violet-400"
+            style={{ animation: 'dm-spin 1.2s linear infinite reverse' }}
+          />
+        </div>
+        <p className="text-sm font-medium text-white">Completing GitHub authorization...</p>
+        <p className="mt-1 text-xs text-slate-500 font-mono">Redirecting to backend</p>
       </div>
     </main>
   );
