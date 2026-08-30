@@ -104,6 +104,54 @@ def test_github_not_found_and_missing_project(monkeypatch) -> None:
             assert client.delete(f"/v1/projects/{project_id}").status_code == 204
 
 
+def test_github_connect_cors_preflight_and_post() -> None:
+    with TestClient(app) as client:
+        headers = {"Origin": "http://localhost:3000"}
+        preflight = client.options(
+            "/v1/github/repositories/connect",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        assert preflight.status_code == 200
+        assert preflight.headers.get("access-control-allow-origin") == "http://localhost:3000"
+        assert preflight.headers.get("access-control-allow-credentials") == "true"
+
+        production_origin = "https://dev-ops-manager.vercel.app"
+        production_preflight = client.options(
+            "/v1/github/repositories/connect",
+            headers={
+                "Origin": production_origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        assert production_preflight.status_code == 200
+        assert production_preflight.headers.get("access-control-allow-origin") == production_origin
+        assert production_preflight.headers.get("access-control-allow-credentials") == "true"
+
+        response = client.post(
+            "/v1/github/repositories/connect",
+            json={
+                "full_name": "octocat/hello-world",
+                "owner": "octocat",
+                "name": "hello-world",
+                "html_url": "https://github.com/octocat/hello-world",
+                "default_branch": "main",
+                "description": "CORS regression test repository",
+            },
+            headers={
+                "Origin": production_origin,
+                "Authorization": "Bearer test-token-12345",
+            },
+        )
+        assert response.status_code == 201
+        assert response.headers.get("access-control-allow-origin") == production_origin
+        assert response.headers.get("access-control-allow-credentials") == "true"
+
+
 def test_github_oauth_flow_endpoints() -> None:
     with TestClient(app) as client:
         auth_resp = client.get("/v1/github/authorize")

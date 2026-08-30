@@ -8,7 +8,12 @@ class Settings(BaseSettings):
     app_name: str = "DevOpsManager"
     environment: str = "development"
     debug: bool = True
-    allowed_origins: list[str] = ["http://localhost:3000"]
+    allowed_origins: list[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://dev-ops-manager.vercel.app",
+    ]
+    allow_origin_regex: str | None = r"https://.*\.vercel\.app$"
     openrouter_api_key: str | None = None
     gemini_api_key: str | None = None
     ai_provider: str = "openrouter"
@@ -22,6 +27,24 @@ class Settings(BaseSettings):
     github_redirect_uri: str = "http://localhost:8000/v1/github/callback"
     github_callback_url: str = "http://localhost:8000/v1/github/callback"
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/devopsmanager"
+
+    @field_validator("allowed_origins", mode="before")
+    @classmethod
+    def normalize_allowed_origins(cls, v: str | list[str] | None) -> list[str]:
+        defaults = [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "https://dev-ops-manager.vercel.app",
+        ]
+        if v in (None, ""):
+            return defaults
+        if isinstance(v, str):
+            values = [item.strip() for item in v.split(",") if item.strip()]
+            return values or defaults
+        if isinstance(v, list):
+            values = [str(item).strip() for item in v if str(item).strip()]
+            return values or defaults
+        return defaults
 
     @field_validator("database_url", mode="before")
     @classmethod

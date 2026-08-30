@@ -11,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.db.session import get_db_session
 from app.integrations.github_app import GitHubAppError, GitHubAppService
-from app.models.core import Project, Repository
+from app.models.core import Project, Repository, GitHubAccount
 from app.schemas.core import ProjectResponse, RepositoryResponse
+from app.services.auth_service import get_authenticated_account, get_or_create_github_account
 
 router = APIRouter(prefix="/github", tags=["github"])
 github_app_service = GitHubAppService()
@@ -77,6 +78,7 @@ async def github_callback(
     error: str | None = Query(default=None),
     error_description: str | None = Query(default=None),
     oauth_state: str | None = Cookie(default=None, alias=STATE_COOKIE),
+    session: AsyncSession = Depends(get_db_session),
 ) -> RedirectResponse:
     frontend_base = settings.allowed_origins[0].rstrip("/")
     if error:
@@ -89,6 +91,8 @@ async def github_callback(
 
     try:
         access_token = await github_app_service.exchange_code_for_token(code)
+        # Create or fetch the GitHub account
+        await get_or_create_github_account(access_token, session)
     except GitHubAppError as exc:
         return RedirectResponse(url=f"{frontend_base}/github/connect?error={str(exc)}", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
@@ -134,8 +138,13 @@ async def get_github_repositories(request: Request) -> list[dict[str, Any]]:
 @router.post("/repositories/connect", response_model=ConnectRepositoryResponse, status_code=status.HTTP_201_CREATED)
 async def connect_and_select_repository(
     payload: ConnectRepositoryRequest,
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
 ) -> ConnectRepositoryResponse:
+    """Connect a GitHub repository to a project, associating it with the authenticated user."""
+    # Get authenticated GitHub account
+    github_account = await get_authenticated_account(request, session)
+    
     full_name = payload.full_name.strip()
     parts = full_name.split("/")
     owner = payload.owner or (parts[0] if len(parts) == 2 else "unknown")
@@ -146,13 +155,14 @@ async def connect_and_select_repository(
         select(Repository).where(
             Repository.provider == "github",
             Repository.full_name == full_name,
+            Repository.github_account_id == github_account.id,
         )
     )
 
     if existing_repo is not None:
         project = await session.get(Project, existing_repo.project_id)
         if project is None:
-            project = Project(name=repo_name, description=payload.description)
+            project = Project(name=repo_name, description=payload.description, github_account_id=github_account.id)
             session.add(project)
             await session.flush()
             existing_repo.project_id = project.id
@@ -170,11 +180,16 @@ async def connect_and_select_repository(
             repository=RepositoryResponse.model_validate(existing_repo),
         )
 
-    project = Project(name=repo_name, description=payload.description or f"Repository {full_name}")
+    project = Project(
+        name=repo_name,
+        description=payload.description or f"Repository {full_name}",
+        github_account_id=github_account.id,
+    )
     session.add(project)
     await session.flush()
 
     repository = Repository(
+        github_account_id=github_account.id,
         project_id=project.id,
         provider="github",
         owner=owner,

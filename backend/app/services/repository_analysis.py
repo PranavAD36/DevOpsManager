@@ -30,6 +30,7 @@ async def run_repository_analysis(
             repository.default_branch,
         )
         result = await analyze_repository_content(repository.full_name, repository.language, files)
+        source_by_path = {item.path: item.content for item in files}
         for detected_issue in result.issues:
             session.add(
                 Issue(
@@ -45,6 +46,7 @@ async def run_repository_analysis(
                     line_number=detected_issue.line_number,
                     suggested_fix=detected_issue.suggested_fix,
                     corrected_code=detected_issue.corrected_code,
+                    original_content=source_by_path.get(detected_issue.file_path or ""),
                 )
             )
         analysis_run.status = "completed"

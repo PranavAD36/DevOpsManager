@@ -11,16 +11,35 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class GitHubAccount(Base):
+    """Represents an authenticated GitHub user account."""
+    __tablename__ = "github_accounts"
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    github_id: Mapped[int] = mapped_column(Integer, nullable=False, unique=True, index=True)
+    github_login: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    avatar_url: Mapped[str | None] = mapped_column(String(2048))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
+
+    projects: Mapped[list["Project"]] = relationship(back_populates="github_account", cascade="all, delete-orphan")
+    repositories: Mapped[list["Repository"]] = relationship(back_populates="github_account", cascade="all, delete-orphan")
+    analysis_runs: Mapped[list["AnalysisRun"]] = relationship(back_populates="github_account", cascade="all, delete-orphan")
+    issues: Mapped[list["Issue"]] = relationship(back_populates="github_account", cascade="all, delete-orphan")
+
+
 class Project(Base):
     __tablename__ = "projects"
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    github_account_id: Mapped[UUID] = mapped_column(ForeignKey("github_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 
+    github_account: Mapped[GitHubAccount] = relationship(back_populates="projects")
     repositories: Mapped[list["Repository"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     analysis_runs: Mapped[list["AnalysisRun"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     issues: Mapped[list["Issue"]] = relationship(back_populates="project", cascade="all, delete-orphan")
@@ -28,9 +47,13 @@ class Project(Base):
 
 class Repository(Base):
     __tablename__ = "repositories"
-    __table_args__ = (Index("ix_repositories_project_id", "project_id"),)
+    __table_args__ = (
+        Index("ix_repositories_project_id", "project_id"),
+        Index("ix_repositories_github_account_id", "github_account_id"),
+    )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    github_account_id: Mapped[UUID] = mapped_column(ForeignKey("github_accounts.id", ondelete="CASCADE"), nullable=False)
     project_id: Mapped[UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     provider: Mapped[str] = mapped_column(String(50), nullable=False, default="github")
     owner: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -53,6 +76,7 @@ class Repository(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 
+    github_account: Mapped[GitHubAccount] = relationship(back_populates="repositories")
     project: Mapped[Project] = relationship(back_populates="repositories")
     analysis_runs: Mapped[list["AnalysisRun"]] = relationship(back_populates="repository", cascade="all, delete-orphan")
     issues: Mapped[list["Issue"]] = relationship(back_populates="repository")
@@ -63,9 +87,11 @@ class AnalysisRun(Base):
     __table_args__ = (
         Index("ix_analysis_runs_project_id", "project_id"),
         Index("ix_analysis_runs_repository_id", "repository_id"),
+        Index("ix_analysis_runs_github_account_id", "github_account_id"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    github_account_id: Mapped[UUID] = mapped_column(ForeignKey("github_accounts.id", ondelete="CASCADE"), nullable=False)
     project_id: Mapped[UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     repository_id: Mapped[UUID] = mapped_column(ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
@@ -75,6 +101,7 @@ class AnalysisRun(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
+    github_account: Mapped[GitHubAccount] = relationship(back_populates="analysis_runs")
     project: Mapped[Project] = relationship(back_populates="analysis_runs")
     repository: Mapped[Repository] = relationship(back_populates="analysis_runs")
     issues: Mapped[list["Issue"]] = relationship(back_populates="analysis_run")
@@ -86,11 +113,13 @@ class Issue(Base):
         Index("ix_issues_project_id", "project_id"),
         Index("ix_issues_repository_id", "repository_id"),
         Index("ix_issues_analysis_run_id", "analysis_run_id"),
+        Index("ix_issues_github_account_id", "github_account_id"),
         Index("ix_issues_status", "status"),
         Index("ix_issues_severity", "severity"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    github_account_id: Mapped[UUID] = mapped_column(ForeignKey("github_accounts.id", ondelete="CASCADE"), nullable=False)
     project_id: Mapped[UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     repository_id: Mapped[UUID | None] = mapped_column(ForeignKey("repositories.id", ondelete="SET NULL"))
     analysis_run_id: Mapped[UUID | None] = mapped_column(ForeignKey("analysis_runs.id", ondelete="SET NULL"))
@@ -103,10 +132,17 @@ class Issue(Base):
     line_number: Mapped[int | None] = mapped_column(Integer)
     suggested_fix: Mapped[str | None] = mapped_column(Text)
     corrected_code: Mapped[str | None] = mapped_column(Text)
+    original_content: Mapped[str | None] = mapped_column(Text)
+    original_sha: Mapped[str | None] = mapped_column(String(64))
+    commit_sha: Mapped[str | None] = mapped_column(String(64))
+    commit_message: Mapped[str | None] = mapped_column(String(500))
+    commit_url: Mapped[str | None] = mapped_column(String(2048))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 
+    github_account: Mapped[GitHubAccount] = relationship(back_populates="issues")
     project: Mapped[Project] = relationship(back_populates="issues")
     repository: Mapped[Repository | None] = relationship(back_populates="issues")
     analysis_run: Mapped[AnalysisRun | None] = relationship(back_populates="issues")

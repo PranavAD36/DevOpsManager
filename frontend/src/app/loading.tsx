@@ -1,9 +1,12 @@
 export default function Loading() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#09090b] px-6">
+    <main className="flex min-h-screen items-center justify-center bg-[#060913]">
       <div className="text-center">
-        <div className="mx-auto w-8 h-8 rounded-full border-2 border-slate-700 border-t-cyan-500 animate-spin mb-4" />
-        <p className="text-xs font-mono text-slate-500">Loading…</p>
+        <div
+          className="w-8 h-8 rounded-full border-2 border-[#1e2d4a] border-t-cyan-400 mx-auto mb-4"
+          style={{ animation: 'dm-spin 0.6s linear infinite' }}
+        />
+        <p className="text-xs font-mono text-slate-500">Loading...</p>
       </div>
     </main>
   );

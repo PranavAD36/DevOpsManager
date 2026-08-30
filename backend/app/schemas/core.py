@@ -124,6 +124,11 @@ class IssueResponse(IssueCreate):
     id: UUID
     project_id: UUID
     approved_at: datetime | None = None
+    original_content: str | None = None
+    original_sha: str | None = None
+    commit_sha: str | None = None
+    commit_message: str | None = None
+    commit_url: str | None = None
     created_at: datetime
     updated_at: datetime
 

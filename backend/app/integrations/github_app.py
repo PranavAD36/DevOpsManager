@@ -52,6 +52,19 @@ class GitHubRepositoryFile:
     content: str
 
 
+@dataclass(frozen=True)
+class GitHubFileVersion:
+    path: str
+    content: str
+    sha: str
+
+
+@dataclass(frozen=True)
+class GitHubCommitResult:
+    sha: str
+    html_url: str
+
+
 class GitHubAppService:
     base_url = "https://api.github.com"
     github_oauth_url = "https://github.com/login/oauth"
@@ -75,6 +88,35 @@ class GitHubAppService:
 
     def authorization_url(self, state: str) -> str:
         return self.get_authorization_url(state)
+
+    async def get_file(self, access_token: str, owner: str, repository: str, path: str, branch: str) -> GitHubFileVersion:
+        if _is_mock_token(access_token):
+            return GitHubFileVersion(path, "from fastapi import FastAPI\napp = FastAPI()\n@app.get('/')\ndef index(): return {'status': 'ok'}\n", "mock-file-sha")
+        headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+        async with httpx.AsyncClient(timeout=20.0, transport=self.transport) as client:
+            response = await client.get(f"{self.base_url}/repos/{owner}/{repository}/contents/{quote(path, safe='/')}", params={"ref": branch}, headers=headers)
+        if response.status_code == 401: raise GitHubAppError("Invalid or expired GitHub access token", 401)
+        if response.status_code == 403: raise GitHubAppError("GitHub repository access denied or rate limit exceeded", 403)
+        if response.status_code == 404: raise GitHubAppError("Repository file not found", 404)
+        if response.is_error: raise GitHubAppError("Failed to fetch latest GitHub file", 502)
+        data = response.json()
+        try: content = base64.b64decode(data["content"]).decode("utf-8")
+        except (KeyError, ValueError, UnicodeDecodeError) as exc: raise GitHubAppError("GitHub file content is invalid", 422) from exc
+        return GitHubFileVersion(path, content, str(data["sha"]))
+
+    async def update_file(self, access_token: str, owner: str, repository: str, path: str, branch: str, content: str, sha: str, message: str) -> GitHubCommitResult:
+        if _is_mock_token(access_token):
+            return GitHubCommitResult("mock-commit-sha", f"https://github.com/{owner}/{repository}/commit/mock-commit-sha")
+        headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+        payload = {"message": message, "content": base64.b64encode(content.encode()).decode(), "sha": sha, "branch": branch}
+        async with httpx.AsyncClient(timeout=20.0, transport=self.transport) as client:
+            response = await client.put(f"{self.base_url}/repos/{owner}/{repository}/contents/{quote(path, safe='/')}", json=payload, headers=headers)
+        if response.status_code == 401: raise GitHubAppError("Invalid or expired GitHub access token", 401)
+        if response.status_code == 403: raise GitHubAppError("GitHub repository write access denied or rate limit exceeded", 403)
+        if response.status_code in (409, 422): raise GitHubAppError("The file changed on GitHub since this analysis was created. Please re-run the analysis before applying this suggestion.", 409)
+        if response.is_error: raise GitHubAppError("GitHub could not commit the approved change", 502)
+        commit = response.json().get("commit", {})
+        return GitHubCommitResult(str(commit.get("sha", "")), str(commit.get("html_url", "")))
 
     async def exchange_code_for_token(self, code: str) -> str:
         token_obj = await self.exchange_code(code)

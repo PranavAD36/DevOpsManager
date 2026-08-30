@@ -64,6 +64,7 @@ alembic upgrade head
 
 # Start FastAPI dev server
 uvicorn app.main:app --reload
+
 ```
 
 - **Backend API**: `http://localhost:8000`
@@ -118,7 +119,7 @@ npm run build
 | **Phase 7** | Safe Code Fixing & Approval UI  | ✅ Complete       | Interactive `DiffViewer` component, inline fix customization, `Approve Fix` and `Reject Fix` local approval engine. |
 | **Phase 8** | GitHub Write-Back Workflow      | ⏳ _Next Horizon_ | Automatic Git branch creation, committing approved code fixes, and opening GitHub Pull Requests.                    |
 
-----> ke hve apde analysis to complete work kre che but 
+---
 
 ## 📂 Codebase Structure
 
