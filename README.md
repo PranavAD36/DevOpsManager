@@ -1,167 +1,88 @@
-# DevOpsManager
+# DevOpsManager 🚀
 
-DevOpsManager is a production-grade, AI-powered software development and repository intelligence platform. It seamlessly connects GitHub repositories, fetches source trees, runs multi-provider LLM analysis (OpenRouter & Google Gemini), detects code vulnerabilities & quality issues, generates proposed code corrections, and provides an interactive UI for local code fix review and approval.
+DevOpsManager is a production-grade, AI-powered software development and repository intelligence platform. It acts as an autonomous, ultra-smart senior engineer that lives directly inside your GitHub repositories. 
+
+Instead of just scanning for static vulnerabilities, DevOpsManager understands your codebase holistically, enforces your custom team guidelines, reviews Pull Requests in real-time, and can even generate complex, cross-file architectural fixes.
 
 ---
 
-## 🚀 Quick Start Guide (Where to Begin)
+## ✨ Key Features
 
-If you are a new developer or contributor taking over or testing this project, follow these steps to get up and running:
+### 1. Chat-with-Repo (RAG) 💬
+DevOpsManager turns your entire codebase into a conversational knowledge base.
+- **How it works:** The platform chunks and indexes your repository files into a local FAISS vector database using Google's embeddings.
+- **How to use it:** Go to the "Chat" tab in your project dashboard, hit "Index Repository", and ask complex questions like *"Where is authentication handled?"* or *"How does the payment gateway integration work?"* The AI retrieves the exact context needed to answer accurately.
+
+### 2. Automated PR Reviews (GitHub App Integration) 🤖
+Stop waiting for human reviewers. Get instant, inline feedback on every Pull Request.
+- **How it works:** DevOpsManager installs as a GitHub App. When a developer opens or updates a Pull Request, the app fetches the Git diff, analyzes the changes against your team's rules, and posts actionable review comments inline on the specific lines of code.
+
+### 3. Cross-File Atomic Fixes 🛠️
+Most AI tools can only fix one file at a time. DevOpsManager understands architectural dependencies.
+- **How it works:** If a bug spans multiple files (e.g., renaming an exported function in a utility file and updating all its callers across components), the AI proposes a unified "Cross-File Atomic Fix."
+- **How to use it:** When reviewing AI-detected issues in the dashboard, multi-file fixes are presented as a stacked list of diff viewers, allowing you to review and approve the entire architectural change at a glance.
+
+### 4. Custom AI Rules & Smart Fingerprinting 🎯
+Tailor the AI to your team's exact coding standards.
+- **Custom Rules:** Enforce specific guidelines by adding plain-text rules to your project (e.g., *"Always use React Server Components"*). The AI injects these rules into its prompt during reviews and scans.
+- **Issue Deduplication:** DevOpsManager uses SHA-256 fingerprinting to track issues across scans. If an issue has already been flagged, it won't spam your dashboard again.
+
+---
+
+## 🚀 Quick Start Guide
 
 ### Prerequisites
-
-- **Python**: 3.11+ (Python 3.13 tested)
+- **Python**: 3.11+
 - **Node.js**: 18.x or 20.x
 - **Database**: PostgreSQL (or Supabase PostgreSQL)
 
----
-
 ### Step 1: Clone & Configure Environment
-
 ```bash
 git clone https://github.com/PranavAD36/DevOpsManager.git
 cd DevOpsManager
 ```
+Create `backend/.env` from `backend/.env.example` and populate your API keys (OpenRouter, Gemini, Supabase, GitHub App credentials).
 
-Create `backend/.env` from `backend/.env.example`:
-
-```env
-APP_NAME=DevOpsManager-App
-ENVIRONMENT=development
-DEBUG=true
-
-# AI Provider Keys
-OPENROUTER_API_KEY=your-openrouter-api-key
-GEMINI_API_KEY=your-gemini-api-key
-AI_PROVIDER=openrouter
-OPENROUTER_MODEL=meta-llama/llama-3.1-8b-instruct:free
-
-# Supabase PostgreSQL Connection String (Session Pooler recommended for Windows)
-DATABASE_URL=postgresql+asyncpg://postgres.wrbgyhgpyysslbafarbz:YOUR_PASSWORD@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres
-
-# GitHub App Integration
-GITHUB_APP_ID=Id
-GITHUB_CLIENT_ID
-GITHUB_CLIENT_SECRET
-GITHUB_PRIVATE_KEY_PATH
-GITHUB_REDIRECT_URI
-```
-
-> 💡 **Supabase Connection Note**: If connecting to a Supabase PostgreSQL instance from Windows, always use the **Supabase Session Pooler** hostname (`aws-0-<region>.pooler.supabase.com:5432`) with the `postgres.<project-ref>` user format to ensure IPv4 DNS resolution compatibility.
-
----
+> 💡 **Supabase Connection Note**: If connecting to a Supabase instance from Windows, use the Supabase Session Pooler hostname (`aws-0-<region>.pooler.supabase.com:5432`).
 
 ### Step 2: Set Up and Run the Backend API
-
 ```bash
 cd backend
-
-# Install Python dependencies
 pip install -r requirements.txt
 
-# Run database migrations
+# Run database migrations to set up your schema
 alembic upgrade head
 
 # Start FastAPI dev server
-uvicorn app.main:app --reload
-
+npm start # or `uvicorn app.main:app --reload`
 ```
-
 - **Backend API**: `http://localhost:8000`
 - **Interactive API Docs (Swagger UI)**: `http://localhost:8000/docs`
 
----
-
 ### Step 3: Set Up and Run the Frontend App
-
 Open a new terminal window:
-
 ```bash
 cd frontend
-
-# Install Node dependencies
 npm install
-
-# Start Next.js development server
 npm run dev
 ```
-
 - **Frontend Application**: `http://localhost:3000`
-- **Connect GitHub Page**: `http://localhost:3000/github/connect`
-- **Projects Overview**: `http://localhost:3000/projects`
+
+### Step 4: Using the Platform
+1. Navigate to `http://localhost:3000`.
+2. Connect your GitHub account via OAuth.
+3. Import a repository into a new Project.
+4. Add your **Custom AI Rules** in the project settings.
+5. Trigger a full repository scan to detect vulnerabilities and receive **Cross-File Atomic Fixes**.
+6. Switch to the **Chat** tab to query your codebase in natural language.
+7. Open a Pull Request on GitHub to see the **Automated PR Review** bot in action!
 
 ---
 
-### Step 4: Run Tests & Verification
+## 📂 Architecture Overview
 
-```bash
-# Run backend test suite (19 tests)
-cd backend
-python -m pytest tests -q
-
-# Run frontend TypeScript & build verification
-cd frontend
-npm run build
-```
-
----
-
-## 🎯 Completed Feature Roadmap (Phases 1 - 7)
-
-| Phase       | Feature Module                  | Status            | Highlights                                                                                                          |
-| ----------- | ------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **Phase 1** | Project Foundation              | ✅ Complete       | FastAPI backend, Next.js 14 frontend, SQLAlchemy async ORM, Alembic migrations.                                     |
-| **Phase 2** | Core Data & API                 | ✅ Complete       | Full CRUD for Projects, Repositories, Analysis Runs, and Issues.                                                    |
-| **Phase 3** | Analysis Workflow               | ✅ Complete       | Relationship cascade fixes, workflow state transitions, SQLite test suite.                                          |
-| **Phase 4** | GitHub App Integration          | ✅ Complete       | GitHub OAuth flow, server-side token cookie handling, auto repository-to-project flow.                              |
-| **Phase 5** | Real Repository Analysis Engine | ✅ Complete       | Recursively fetches source tree from GitHub REST API, triggers LLM code review, creates structured `Issue` records. |
-| **Phase 6** | AI Fix & Code Generation        | ✅ Complete       | AI explains _why_ issues occur, provides human-readable `suggested_fix`, and generates `corrected_code` snippets.   |
-| **Phase 7** | Safe Code Fixing & Approval UI  | ✅ Complete       | Interactive `DiffViewer` component, inline fix customization, `Approve Fix` and `Reject Fix` local approval engine. |
-| **Phase 8** | GitHub Write-Back Workflow      | ⏳ _Next Horizon_ | Automatic Git branch creation, committing approved code fixes, and opening GitHub Pull Requests.                    |
-
----
-
-## 📂 Codebase Structure
-
-```
-DevOpsManager/
-├── backend/
-│   ├── alembic/              # Database migration scripts
-│   ├── app/
-│   │   ├── api/v1/          # Versioned REST endpoints (core, github, ai, database)
-│   │   ├── core/            # ConfigParser, Pydantic settings, environment rules
-│   │   ├── db/              # Async database session & Base metadata
-│   │   ├── integrations/    # GitHub App & OAuth integration service
-│   │   ├── models/          # SQLAlchemy ORM models (Project, Repository, AnalysisRun, Issue)
-│   │   ├── schemas/         # Pydantic validation schemas
-│   │   └── services/        # AI analysis engine & repository source fetcher
-│   ├── tests/               # Pytest suite (health, core API, GitHub OAuth, analysis engine)
-│   └── requirements.txt     # Python requirements
-├── frontend/
-│   ├── src/
-│   │   ├── app/             # Next.js App Router (home, projects, repositories, github connect)
-│   │   ├── components/      # Reusable UI components (DiffViewer.tsx)
-│   │   └── lib/             # API client, TypeScript types, and constants
-│   ├── package.json
-│   └── tsconfig.json
-├── agent.md                 # Full project roadmap and handoff guide
-└── README.md                # Project documentation
-```
-
----
-
-## 🔒 Security & Safety Rules
-
-1. **Local Approval Gate**: Phase 7 handles local approval only. No code is modified on GitHub without explicit user approval.
-2. **Secrets Protection**: Private keys, GitHub secrets, and API keys are stored in environment variables and local secret folders (`secrets/`), never committed to git (`.gitignore`).
-3. **OAuth Cookie Security**: OAuth state and access tokens use HTTP-only, host-matching cookies (`localhost:8000`).
-
----
-
-## 🔮 Next Horizon: Phase 8 (GitHub Write-Back Workflow)
-
-Once code fixes are approved in Phase 7:
-
-1. **Feature Branch Creation**: Create `devopsmanager/fix-issue-#<id>` branch via GitHub REST API.
-2. **Git Commit**: Commit approved `corrected_code` to the repository branch.
-3. **Pull Request**: Automatically open a Pull Request targeting `main`/`master` branch on GitHub.
+DevOpsManager uses a robust, modern tech stack:
+- **Backend:** FastAPI (Python), SQLAlchemy Async ORM, Alembic, LangChain, FAISS (Vector DB).
+- **Frontend:** Next.js 14 App Router, React, TailwindCSS.
+- **AI Providers:** Google Gemini, OpenRouter.
+- **Integrations:** GitHub REST API & Webhooks.
