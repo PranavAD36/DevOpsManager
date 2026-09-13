@@ -93,8 +93,6 @@ class GitHubAppService:
         return self.get_authorization_url(state)
 
     async def get_file(self, access_token: str, owner: str, repository: str, path: str, branch: str) -> GitHubFileVersion:
-        if _is_mock_token(access_token):
-            return GitHubFileVersion(path, "from fastapi import FastAPI\napp = FastAPI()\n@app.get('/')\ndef index(): return {'status': 'ok'}\n", "mock-file-sha")
         headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
         async with httpx.AsyncClient(timeout=20.0, transport=self.transport) as client:
             response = await client.get(f"{self.base_url}/repos/{owner}/{repository}/contents/{quote(path, safe='/')}", params={"ref": branch}, headers=headers)
@@ -108,8 +106,6 @@ class GitHubAppService:
         return GitHubFileVersion(path, content, str(data["sha"]))
 
     async def update_file(self, access_token: str, owner: str, repository: str, path: str, branch: str, content: str, sha: str, message: str) -> GitHubCommitResult:
-        if _is_mock_token(access_token):
-            return GitHubCommitResult("mock-commit-sha", f"https://github.com/{owner}/{repository}/commit/mock-commit-sha")
         headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
         payload = {"message": message, "content": base64.b64encode(content.encode()).decode(), "sha": sha, "branch": branch}
         async with httpx.AsyncClient(timeout=20.0, transport=self.transport) as client:
@@ -128,18 +124,6 @@ class GitHubAppService:
     async def exchange_code(self, code: str) -> GitHubOAuthToken:
         client_id = settings.github_client_id
         client_secret = settings.github_client_secret
-
-        if (
-            not client_id
-            or not client_secret
-            or client_id.startswith("mock_")
-            or client_id.startswith("your-")
-            or code.startswith("mock_")
-        ):
-            return GitHubOAuthToken(
-                access_token=f"mock_token_{code}",
-                expires_at=datetime.now(timezone.utc) + timedelta(days=7),
-            )
 
         payload = {
             "client_id": client_id,
@@ -177,9 +161,6 @@ class GitHubAppService:
         return GitHubOAuthToken(access_token=access_token, expires_at=expires_at)
 
     async def get_authenticated_user(self, access_token: str) -> GitHubUser:
-        if _is_mock_token(access_token):
-            return GitHubUser(id=12345678, login="devopsmanager-user")
-
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/vnd.github+json",
@@ -270,38 +251,6 @@ class GitHubAppService:
         ]
 
     async def list_repositories(self, access_token: str) -> list[GitHubAccessibleRepository]:
-        if _is_mock_token(access_token):
-            return [
-                GitHubAccessibleRepository(
-                    id=101,
-                    name="Advanced-Web-Development-Frameworks",
-                    full_name="PranavAD36/Advanced-Web-Development-Frameworks",
-                    owner="PranavAD36",
-                    private=False,
-                    default_branch="main",
-                    html_url="https://github.com/PranavAD36/Advanced-Web-Development-Frameworks",
-                    description="Sample web framework project",
-                    language="TypeScript",
-                    stargazers_count=5,
-                    forks_count=2,
-                    permissions={"admin": True, "push": True, "pull": True},
-                ),
-                GitHubAccessibleRepository(
-                    id=102,
-                    name="DevOpsManager",
-                    full_name="PranavAD36/DevOpsManager",
-                    owner="PranavAD36",
-                    private=False,
-                    default_branch="main",
-                    html_url="https://github.com/PranavAD36/DevOpsManager",
-                    description="AI-powered DevOps intelligence platform",
-                    language="Python",
-                    stargazers_count=12,
-                    forks_count=4,
-                    permissions={"admin": True, "push": True, "pull": True},
-                ),
-            ]
-
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/vnd.github+json",
@@ -353,17 +302,6 @@ class GitHubAppService:
         max_file_bytes: int = 12000,
         max_total_bytes: int = 120000,
     ) -> list[GitHubRepositoryFile]:
-        if _is_mock_token(access_token):
-            return [
-                GitHubRepositoryFile(
-                    path="app/main.py",
-                    content="from fastapi import FastAPI\napp = FastAPI()\n@app.get('/')\ndef index(): return {'status': 'ok'}\n",
-                ),
-                GitHubRepositoryFile(
-                    path="README.md",
-                    content="# Sample Project\nThis is a sample project for testing.\n",
-                ),
-            ]
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/vnd.github+json",
@@ -458,8 +396,6 @@ class GitHubAppService:
         app_id = settings.github_app_id
         private_key_path = settings.resolved_github_private_key_path
         if not app_id or not private_key_path or not private_key_path.exists():
-            if _is_mock_token(app_id or ""):
-                return "mock_jwt"
             raise GitHubAppError("GitHub App ID or Private Key is missing/invalid", 500)
         
         with open(private_key_path, "rb") as f:
@@ -474,8 +410,8 @@ class GitHubAppService:
         return jwt.encode(payload, private_key, algorithm="RS256")
 
     async def get_installation_access_token(self, installation_id: int) -> str:
-        if installation_id == 0 or getattr(settings, "github_client_id", "").startswith("mock_"):
-            return "mock_installation_token"
+        if installation_id == 0:
+            raise GitHubAppError("Invalid installation ID", 400)
         
         jwt_token = self._generate_jwt()
         headers = {
@@ -493,9 +429,6 @@ class GitHubAppService:
         return response.json()["token"]
 
     async def get_pull_request_diff(self, access_token: str, owner: str, repository: str, pr_number: int) -> str:
-        if _is_mock_token(access_token):
-            return "diff --git a/test.py b/test.py\n+ print('hello')"
-        
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/vnd.github.v3.diff",
@@ -513,9 +446,6 @@ class GitHubAppService:
         return response.text
 
     async def create_pull_request_review(self, access_token: str, owner: str, repository: str, pr_number: int, commit_id: str, comments: list[dict]) -> None:
-        if _is_mock_token(access_token):
-            return
-        
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/vnd.github+json",
@@ -553,10 +483,4 @@ def _is_relevant_source_path(path: str) -> bool:
             ".md", ".dockerfile",
         )
     ) or filename in {"dockerfile", "makefile", "readme"}
-
-
-def _is_mock_token(token: str) -> bool:
-    if token.startswith("mock_token_") or token.startswith("mock_"):
-        return True
-    return False
 
