@@ -5,6 +5,7 @@ export type Project = {
   name: string;
   description: string | null;
   status: string;
+  custom_rules?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -174,6 +175,7 @@ export const api = {
   listProjects: () => request<Project[]>('/v1/projects'),
   createProject: (payload: { name: string; description?: string }) => request<Project>('/v1/projects', { method: 'POST', body: JSON.stringify(payload) }),
   getProject: (id: string) => request<Project>(`/v1/projects/${id}`),
+  updateProject: (id: string, payload: { name?: string; description?: string; custom_rules?: string | null }) => request<Project>(`/v1/projects/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   listRepositories: (id: string) => request<Repository[]>(`/v1/projects/${id}/repositories`),
   createRepository: (id: string, payload: RepositoryInput) => request<Repository>(`/v1/projects/${id}/repositories`, { method: 'POST', body: JSON.stringify(payload) }),
   connectRepository: (id: string, url: string) => request<Repository>(`/v1/projects/${id}/repositories/connect`, { method: 'POST', body: JSON.stringify({ url }) }),
@@ -195,5 +197,6 @@ export const api = {
   listGithubRepositories: () => request<GitHubRepository[]>('/v1/github/repositories'),
   getPublicUserRepositories: (username: string) => request<GitHubRepository[]>(`/v1/github/users/${encodeURIComponent(username)}/repositories`),
   connectGithubRepository: (payload: GitHubConnectRepositoryInput) => request<{ project_id: string; repository_id: string; message: string }>('/v1/github/repositories/connect', { method: 'POST', body: JSON.stringify(payload) }),
+  logout: () => request<void>('/v1/github/logout', { method: 'POST' }),
 };
 

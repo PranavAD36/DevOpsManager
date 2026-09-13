@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     github_private_key_path: str | None = None
     github_redirect_uri: str = "http://localhost:8000/v1/github/callback"
     github_callback_url: str = "http://localhost:8000/v1/github/callback"
+    github_webhook_secret: str | None = None
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/devopsmanager"
 
     @field_validator("allowed_origins", mode="before")

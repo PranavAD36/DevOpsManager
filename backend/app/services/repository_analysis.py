@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.integrations.github_app import GitHubAppError, GitHubAppService
-from app.models.core import AnalysisRun, Issue, Repository
+from app.models.core import AnalysisRun, Issue, Repository, Project
 from app.services.ai_service import AIProviderError, analyze_repository_content
 
 
@@ -22,6 +22,10 @@ async def run_repository_analysis(
     analysis_run.started_at = utc_now()
     await session.commit()
     try:
+        project = await session.get(Project, analysis_run.project_id)
+        if not project:
+            raise ValueError("Project not found")
+        
         service = github_service or GitHubAppService()
         files = await service.get_repository_source_files(
             access_token,
@@ -29,14 +33,34 @@ async def run_repository_analysis(
             repository.name,
             repository.default_branch,
         )
-        result = await analyze_repository_content(repository.full_name, repository.language, files)
+        result = await analyze_repository_content(
+            repository.full_name, 
+            repository.language, 
+            files, 
+            custom_rules=project.custom_rules
+        )
         source_by_path = {item.path: item.content for item in files}
+        import hashlib
+        from sqlalchemy import select
+        
         for detected_issue in result.issues:
+            # Generate fingerprint
+            fp_content = f"{detected_issue.file_path}:{detected_issue.title}:{detected_issue.category}"
+            fingerprint = hashlib.sha256(fp_content.encode("utf-8")).hexdigest()
+            
+            # Check for duplicate in this project
+            existing = await session.scalar(
+                select(Issue).where(Issue.project_id == project.id, Issue.fingerprint == fingerprint)
+            )
+            if existing:
+                continue
+
             session.add(
                 Issue(
                     project_id=analysis_run.project_id,
                     repository_id=repository.id,
                     analysis_run_id=analysis_run.id,
+                    github_account_id=analysis_run.github_account_id,
                     title=detected_issue.title,
                     description=detected_issue.description,
                     severity=detected_issue.severity,
@@ -47,6 +71,7 @@ async def run_repository_analysis(
                     suggested_fix=detected_issue.suggested_fix,
                     corrected_code=detected_issue.corrected_code,
                     original_content=source_by_path.get(detected_issue.file_path or ""),
+                    fingerprint=fingerprint,
                 )
             )
         analysis_run.status = "completed"

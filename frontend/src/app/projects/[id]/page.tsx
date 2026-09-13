@@ -38,7 +38,7 @@ export default function ProjectDetailsPage() {
     percent: number;
     steps: { label: string; done: boolean; active: boolean }[];
   } | null>(null);
-  const [activeSection, setActiveSection] = useState<"repositories" | "analysis">("repositories");
+  const [activeSection, setActiveSection] = useState<"repositories" | "analysis" | "settings">("repositories");
 
   async function load() {
     try {
@@ -367,6 +367,16 @@ export default function ProjectDetailsPage() {
                   </span>
                 )}
               </button>
+              <button
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                  activeSection === "settings"
+                    ? "bg-[#152035] text-white shadow-sm"
+                    : "text-slate-400 hover:text-white"
+                }`}
+                onClick={() => setActiveSection("settings")}
+              >
+                Settings
+              </button>
             </div>
 
             {/* ── Repositories section ─────────────────────── */}
@@ -642,6 +652,14 @@ export default function ProjectDetailsPage() {
                 )}
               </div>
             )}
+
+            {/* ── Settings section ──────────────────────── */}
+            {activeSection === "settings" && (
+              <ProjectSettings 
+                project={project} 
+                onUpdate={(updated) => setProject(updated)} 
+              />
+            )}
           </>
         )}
       </div>
@@ -825,6 +843,69 @@ export default function ProjectDetailsPage() {
         </div>
       )}
     </main>
+  );
+}
+
+/* ── Settings Component ──────────────────────────────────── */
+
+function ProjectSettings({ project, onUpdate }: { project: Project, onUpdate: (p: Project) => void }) {
+  const [rules, setRules] = useState(project.custom_rules || "");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function handleSave(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setMessage(null);
+    try {
+      const updated = await api.updateProject(project.id, { custom_rules: rules || null });
+      onUpdate(updated);
+      setMessage("Settings saved successfully.");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Failed to save settings.");
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMessage(null), 3000);
+    }
+  }
+
+  return (
+    <div className="glass-panel p-6 max-w-2xl">
+      <h2 className="text-lg font-semibold text-white mb-2">Project Settings</h2>
+      <p className="text-sm text-slate-400 mb-6">Configure AI behavior and team guidelines for this project.</p>
+      
+      <form onSubmit={handleSave} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-slate-300 mb-2">
+            Custom AI Rules
+          </label>
+          <p className="text-xs text-slate-500 mb-3">
+            Instruct the AI on specific coding standards, libraries to avoid, or architectural rules it should enforce during PR analysis.
+          </p>
+          <textarea
+            className="input !py-3 font-mono text-sm min-h-[160px]"
+            placeholder="e.g. Always use console.warn instead of console.log. Do not use lodash, use native array methods instead."
+            value={rules}
+            onChange={(e) => setRules(e.target.value)}
+          />
+        </div>
+        
+        <div className="flex items-center gap-4 pt-2">
+          <button
+            type="submit"
+            className="btn-primary !py-2 !px-6"
+            disabled={saving}
+          >
+            {saving ? "Saving..." : "Save Rules"}
+          </button>
+          {message && (
+            <span className={`text-sm ${message.includes("success") ? "text-emerald-400" : "text-rose-400"}`}>
+              {message}
+            </span>
+          )}
+        </div>
+      </form>
+    </div>
   );
 }
 

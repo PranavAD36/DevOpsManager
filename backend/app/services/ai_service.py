@@ -27,6 +27,18 @@ class RepositoryAnalysisResult(BaseModel):
     issues: list[AnalyzedIssue] = Field(default_factory=list, max_length=100)
 
 
+class PRReviewComment(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    path: str
+    line: int
+    body: str
+
+
+class PRReviewResult(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    comments: list[PRReviewComment] = Field(default_factory=list)
+
+
 class AIProviderError(Exception):
     pass
 
@@ -47,9 +59,10 @@ async def analyze_repository_content(
     language: str | None,
     files: list[object],
     provider: str | None = None,
+    custom_rules: str | None = None,
 ) -> RepositoryAnalysisResult:
     selected_provider = (provider or settings.ai_provider).lower()
-    prompt = _build_prompt(repository_name, language, files)
+    prompt = _build_prompt(repository_name, language, files, custom_rules)
     if selected_provider == "openrouter":
         if not settings.openrouter_api_key:
             raise AIProviderError("OPENROUTER_API_KEY is not configured")
@@ -63,8 +76,33 @@ async def analyze_repository_content(
     return _parse_analysis_response(content)
 
 
-def _build_prompt(repository_name: str, language: str | None, files: list[object]) -> str:
+async def analyze_pull_request_diff(
+    repository_name: str,
+    diff_content: str,
+    custom_rules: str | None = None,
+    provider: str | None = None,
+) -> PRReviewResult:
+    selected_provider = (provider or settings.ai_provider).lower()
+    prompt = _build_pr_prompt(repository_name, diff_content, custom_rules)
+    if selected_provider == "openrouter":
+        if not settings.openrouter_api_key:
+            raise AIProviderError("OPENROUTER_API_KEY is not configured")
+        content = await _call_openrouter(prompt)
+    elif selected_provider == "gemini":
+        if not settings.gemini_api_key:
+            raise AIProviderError("Gemini API key is not configured")
+        content = await _call_gemini(prompt)
+    else:
+        raise AIProviderError(f"Unsupported AI provider: {selected_provider}")
+    return _parse_pr_review_response(content)
+
+
+def _build_prompt(repository_name: str, language: str | None, files: list[object], custom_rules: str | None = None) -> str:
     source = "\n\n".join(f"FILE: {item.path}\n{item.content}" for item in files)
+    rules_text = (
+        f"\nThe team has provided the following custom guidelines to enforce:\n<custom_rules>\n{custom_rules}\n</custom_rules>\n"
+        if custom_rules else ""
+    )
     return (
         "Analyze this repository for actionable software, security, reliability, and maintainability problems. "
         "For each issue, explain clearly what is wrong and why it is a problem. "
@@ -75,7 +113,23 @@ def _build_prompt(repository_name: str, language: str | None, files: list[object
         "Severity must be low, medium, high, or critical. "
         "Use null for unknown file_path, line_number, suggested_fix, or corrected_code. "
         "Do not invent issues unrelated to the supplied files.\n\n"
-        f"Repository: {repository_name}\nLanguage: {language or 'unknown'}\n\n{source}"
+        f"Repository: {repository_name}\nLanguage: {language or 'unknown'}\n{rules_text}\n{source}"
+    )
+
+
+def _build_pr_prompt(repository_name: str, diff_content: str, custom_rules: str | None = None) -> str:
+    rules_text = (
+        f"\nThe team has provided the following custom guidelines to enforce:\n<custom_rules>\n{custom_rules}\n</custom_rules>\n"
+        if custom_rules else ""
+    )
+    return (
+        "Analyze this Git diff for a Pull Request. Provide actionable code review comments for issues, bugs, or bad practices. "
+        "Return only valid JSON matching {comments: [{path, line, body}]}. "
+        "The 'path' must be the file path from the diff. "
+        "The 'line' must be the line number in the new file where the issue exists. "
+        "The 'body' is your markdown-formatted review comment. "
+        "Do not comment if the code is fine. Only flag actionable issues.\n\n"
+        f"Repository: {repository_name}\n{rules_text}\nDiff:\n{diff_content}"
     )
 
 
@@ -151,3 +205,18 @@ def _parse_analysis_response(content: str) -> RepositoryAnalysisResult:
         return RepositoryAnalysisResult.model_validate(json.loads(cleaned))
     except (json.JSONDecodeError, ValueError) as exc:
         raise AIProviderError(f"AI provider returned invalid structured analysis: {exc}. Raw output snippet: {content[:200]}") from exc
+
+
+def _parse_pr_review_response(content: str) -> PRReviewResult:
+    start_idx = content.find('{')
+    end_idx = content.rfind('}')
+    
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        cleaned = content[start_idx:end_idx+1]
+    else:
+        cleaned = content.strip()
+
+    try:
+        return PRReviewResult.model_validate(json.loads(cleaned))
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise AIProviderError(f"AI provider returned invalid PR review format: {exc}. Raw output snippet: {content[:200]}") from exc

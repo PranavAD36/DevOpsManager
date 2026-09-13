@@ -454,6 +454,87 @@ class GitHubAppService:
         except httpx.HTTPError as exc:
             raise GitHubAppError("GitHub repository content request failed", 502) from exc
 
+    def _generate_jwt(self) -> str:
+        app_id = settings.github_app_id
+        private_key_path = settings.resolved_github_private_key_path
+        if not app_id or not private_key_path or not private_key_path.exists():
+            if _is_mock_token(app_id or ""):
+                return "mock_jwt"
+            raise GitHubAppError("GitHub App ID or Private Key is missing/invalid", 500)
+        
+        with open(private_key_path, "rb") as f:
+            private_key = f.read()
+
+        now = int(datetime.now(timezone.utc).timestamp())
+        payload = {
+            "iat": now - 60,
+            "exp": now + (10 * 60),
+            "iss": app_id
+        }
+        return jwt.encode(payload, private_key, algorithm="RS256")
+
+    async def get_installation_access_token(self, installation_id: int) -> str:
+        if installation_id == 0 or getattr(settings, "github_client_id", "").startswith("mock_"):
+            return "mock_installation_token"
+        
+        jwt_token = self._generate_jwt()
+        headers = {
+            "Authorization": f"Bearer {jwt_token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        async with httpx.AsyncClient(timeout=15.0, transport=self.transport) as client:
+            response = await client.post(
+                f"{self.base_url}/app/installations/{installation_id}/access_tokens",
+                headers=headers
+            )
+        if response.is_error:
+            raise GitHubAppError(f"Failed to generate installation token (HTTP {response.status_code}): {response.text}", 502)
+        return response.json()["token"]
+
+    async def get_pull_request_diff(self, access_token: str, owner: str, repository: str, pr_number: int) -> str:
+        if _is_mock_token(access_token):
+            return "diff --git a/test.py b/test.py\n+ print('hello')"
+        
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/vnd.github.v3.diff",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        async with httpx.AsyncClient(timeout=30.0, transport=self.transport) as client:
+            # We follow redirects for the diff
+            response = await client.get(
+                f"{self.base_url}/repos/{owner}/{repository}/pulls/{pr_number}",
+                headers=headers,
+                follow_redirects=True
+            )
+        if response.is_error:
+            raise GitHubAppError(f"Failed to fetch PR diff (HTTP {response.status_code})", 502)
+        return response.text
+
+    async def create_pull_request_review(self, access_token: str, owner: str, repository: str, pr_number: int, commit_id: str, comments: list[dict]) -> None:
+        if _is_mock_token(access_token):
+            return
+        
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        payload = {
+            "commit_id": commit_id,
+            "event": "COMMENT",
+            "comments": comments
+        }
+        async with httpx.AsyncClient(timeout=20.0, transport=self.transport) as client:
+            response = await client.post(
+                f"{self.base_url}/repos/{owner}/{repository}/pulls/{pr_number}/reviews",
+                json=payload,
+                headers=headers
+            )
+        if response.is_error:
+            raise GitHubAppError(f"Failed to create PR review (HTTP {response.status_code}): {response.text}", 502)
+
 
 def _is_relevant_source_path(path: str) -> bool:
     excluded_parts = {".git", "node_modules", ".next", "dist", "build", "__pycache__", ".venv", "venv", "env"}

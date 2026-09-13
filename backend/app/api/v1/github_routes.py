@@ -1,3 +1,4 @@
+from urllib.parse import urlparse
 import base64
 import hashlib
 import hmac
@@ -277,3 +278,17 @@ async def connect_and_select_repository(
         project=ProjectResponse.model_validate(project),
         repository=RepositoryResponse.model_validate(repository),
     )
+
+
+@router.post("/logout")
+async def github_logout() -> Response:
+    """Clear the GitHub access token cookie to log the user out."""
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    response.set_cookie(
+        key="github_access_token",
+        value="",
+        max_age=0,
+        httponly=True,
+        **_cookie_options(),
+    )
+    return response

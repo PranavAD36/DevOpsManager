@@ -8,12 +8,14 @@ class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     status: str = Field(default="active", max_length=50)
+    custom_rules: str | None = None
 
 
 class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     status: str | None = Field(default=None, max_length=50)
+    custom_rules: str | None = None
 
 
 class ProjectResponse(ProjectCreate):
@@ -103,6 +105,7 @@ class IssueCreate(BaseModel):
     analysis_run_id: UUID | None = None
     suggested_fix: str | None = None
     corrected_code: str | None = None
+    fingerprint: str | None = None
 
 
 class IssueUpdate(BaseModel):
@@ -117,6 +120,7 @@ class IssueUpdate(BaseModel):
     analysis_run_id: UUID | None = None
     suggested_fix: str | None = None
     corrected_code: str | None = None
+    fingerprint: str | None = None
 
 
 class IssueResponse(IssueCreate):
