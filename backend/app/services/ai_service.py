@@ -9,6 +9,12 @@ from app.core.config import settings
 from app.schemas.ai import AnalyzeRepoRequest, AnalyzeRepoResponse
 
 
+class CrossFileFix(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    file_path: str
+    original_content: str | None = None
+    corrected_code: str
+
 class AnalyzedIssue(BaseModel):
     model_config = ConfigDict(extra="ignore")
     title: str = Field(min_length=1, max_length=500)
@@ -19,6 +25,7 @@ class AnalyzedIssue(BaseModel):
     line_number: int | None = Field(default=None, ge=1)
     suggested_fix: str | None = None
     corrected_code: str | None = None
+    cross_file_fixes: list[CrossFileFix] | None = None
 
 
 class RepositoryAnalysisResult(BaseModel):
@@ -106,12 +113,14 @@ def _build_prompt(repository_name: str, language: str | None, files: list[object
     return (
         "Analyze this repository for actionable software, security, reliability, and maintainability problems. "
         "For each issue, explain clearly what is wrong and why it is a problem. "
-        "Include a human-readable suggested_fix describing how to correct it, "
-        "and provide corrected_code with the fixed code snippet when applicable. "
+        "Include a human-readable suggested_fix describing how to correct it. "
+        "If the issue is isolated to a single file, provide the corrected_code with the fixed snippet. "
+        "If the issue spans MULTIPLE files (e.g. changing an API signature and updating all its callers), "
+        "provide a cross_file_fixes array containing the file_path, original_content, and corrected_code for each affected file. "
         "Return only valid JSON matching {summary: string, issues: [{title, description, severity, category, "
-        "file_path, line_number, suggested_fix, corrected_code}]}. "
+        "file_path, line_number, suggested_fix, corrected_code, cross_file_fixes: [{file_path, original_content, corrected_code}]}]}. "
         "Severity must be low, medium, high, or critical. "
-        "Use null for unknown file_path, line_number, suggested_fix, or corrected_code. "
+        "Use null for unknown file_path, line_number, suggested_fix, corrected_code, or cross_file_fixes. "
         "Do not invent issues unrelated to the supplied files.\n\n"
         f"Repository: {repository_name}\nLanguage: {language or 'unknown'}\n{rules_text}\n{source}"
     )

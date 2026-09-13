@@ -58,7 +58,10 @@ export type Issue = {
   file_path: string | null;
   line_number: number | null;
   suggested_fix: string | null;
-  corrected_code: string | null;
+  corrected_code?: string | null;
+  fingerprint?: string | null;
+  cross_file_fixes?: { file_path: string; original_content: string | null; corrected_code: string }[] | null;
+  created_at?: string | null;
   approved_at: string | null;
   original_content?: string | null;
   commit_sha?: string | null;
@@ -198,5 +201,6 @@ export const api = {
   getPublicUserRepositories: (username: string) => request<GitHubRepository[]>(`/v1/github/users/${encodeURIComponent(username)}/repositories`),
   connectGithubRepository: (payload: GitHubConnectRepositoryInput) => request<{ project_id: string; repository_id: string; message: string }>('/v1/github/repositories/connect', { method: 'POST', body: JSON.stringify(payload) }),
   logout: () => request<void>('/v1/github/logout', { method: 'POST' }),
+  indexRepository: (repositoryId: string) => request<{ message: string }>(`/v1/rag/${repositoryId}/index`, { method: 'POST' }),
+  chatWithRepo: (repositoryId: string, query: string) => request<{ answer: string }>(`/v1/rag/${repositoryId}/chat`, { method: 'POST', body: JSON.stringify({ query }) }),
 };
-

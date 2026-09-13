@@ -38,7 +38,12 @@ export default function ProjectDetailsPage() {
     percent: number;
     steps: { label: string; done: boolean; active: boolean }[];
   } | null>(null);
-  const [activeSection, setActiveSection] = useState<"repositories" | "analysis" | "settings">("repositories");
+  const [activeSection, setActiveSection] = useState<"repositories" | "analysis" | "settings" | "chat">("repositories");
+  const [chatRepositoryId, setChatRepositoryId] = useState<string>("");
+  const [chatMessages, setChatMessages] = useState<{role: string, text: string}[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [indexing, setIndexing] = useState(false);
 
   async function load() {
     try {
@@ -377,7 +382,106 @@ export default function ProjectDetailsPage() {
               >
                 Settings
               </button>
+              <button
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                  activeSection === "chat"
+                    ? "bg-[#152035] text-white shadow-sm"
+                    : "text-slate-400 hover:text-white"
+                }`}
+                onClick={() => setActiveSection("chat")}
+              >
+                Chat
+              </button>
             </div>
+
+            {/* ── Chat section ─────────────────────── */}
+            {activeSection === "chat" && (
+              <div className="glass-panel p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-semibold text-white">Repository Chat</h3>
+                  <div className="flex items-center gap-4">
+                    <select
+                      className="input w-64 !py-2 !text-sm bg-[#101827] border-[#1e2d4a]"
+                      value={chatRepositoryId}
+                      onChange={(e) => setChatRepositoryId(e.target.value)}
+                    >
+                      <option value="">Select a repository...</option>
+                      {repositories.map(r => <option key={r.id} value={r.id}>{r.full_name}</option>)}
+                    </select>
+                    <button
+                      className="btn-primary !py-2 !text-sm disabled:opacity-50"
+                      disabled={!chatRepositoryId || indexing}
+                      onClick={async () => {
+                        setIndexing(true);
+                        try {
+                          await api.indexRepository(chatRepositoryId);
+                          alert("Indexing started in background!");
+                        } catch(e) {
+                          alert(e instanceof Error ? e.message : "Error");
+                        }
+                        setIndexing(false);
+                      }}
+                    >
+                      {indexing ? "Indexing..." : "Index Repository"}
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="bg-[#0b1120] rounded-xl border border-[#1e2d4a] flex flex-col h-[500px]">
+                  <div className="flex-1 p-4 overflow-y-auto space-y-4">
+                    {chatMessages.length === 0 ? (
+                      <div className="text-center text-slate-500 mt-20">Select a repository, index it, and start chatting!</div>
+                    ) : (
+                      chatMessages.map((msg, i) => (
+                        <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[80%] rounded-xl p-3 text-sm ${msg.role === 'user' ? 'bg-cyan-500/20 text-cyan-100' : 'bg-[#1e2d4a] text-slate-200'}`}>
+                            <pre className="whitespace-pre-wrap font-sans">{msg.text}</pre>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    {chatLoading && <div className="text-slate-400 text-sm italic">AI is thinking...</div>}
+                  </div>
+                  
+                  <div className="p-4 border-t border-[#1e2d4a]">
+                    <form 
+                      className="flex gap-3"
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        if (!chatInput.trim() || !chatRepositoryId) return;
+                        const query = chatInput.trim();
+                        setChatInput("");
+                        setChatMessages(prev => [...prev, { role: 'user', text: query }]);
+                        setChatLoading(true);
+                        try {
+                          const res = await api.chatWithRepo(chatRepositoryId, query);
+                          setChatMessages(prev => [...prev, { role: 'ai', text: res.answer }]);
+                        } catch(e) {
+                          setChatMessages(prev => [...prev, { role: 'ai', text: `Error: ${e instanceof Error ? e.message : 'Unknown'}` }]);
+                        }
+                        setChatLoading(false);
+                      }}
+                    >
+                      <input 
+                        type="text" 
+                        className="input flex-1 bg-[#152035]" 
+                        placeholder="Ask a question about the codebase..."
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        disabled={!chatRepositoryId || chatLoading}
+                      />
+                      <button 
+                        type="submit" 
+                        className="btn-primary"
+                        disabled={!chatInput.trim() || !chatRepositoryId || chatLoading}
+                      >
+                        Send
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* ── Repositories section ─────────────────────── */}
             {activeSection === "repositories" && (
@@ -996,15 +1100,35 @@ function IssueCard({
               <p className="mt-1 text-xs text-emerald-300/80">{issue.suggested_fix}</p>
             </div>
           )}
-          {issue.corrected_code && (
+          {(issue.corrected_code || (issue.cross_file_fixes && issue.cross_file_fixes.length > 0)) && (
             <>
-              <DiffViewer
-                filePath={issue.file_path}
-                lineNumber={issue.line_number}
-                description={issue.description}
-                correctedCode={issue.corrected_code}
-                                onSaveFix={async (code) => onUpdateFix(code)}
-              />
+              {issue.cross_file_fixes && issue.cross_file_fixes.length > 0 ? (
+                <div className="space-y-4">
+                  <div className="text-sm font-semibold text-cyan-400 mt-2 flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                    </svg>
+                    Cross-File Atomic Fix
+                  </div>
+                  {issue.cross_file_fixes.map((fix, idx) => (
+                    <DiffViewer
+                      key={idx}
+                      filePath={fix.file_path}
+                      lineNumber={null}
+                      description={idx === 0 ? issue.description : undefined}
+                      correctedCode={fix.corrected_code}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <DiffViewer
+                  filePath={issue.file_path}
+                  lineNumber={issue.line_number}
+                  description={issue.description}
+                  correctedCode={issue.corrected_code!}
+                  onSaveFix={async (code) => onUpdateFix(code)}
+                />
+              )}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-[#1e2d4a]/30">
                 <span className="text-[11px] text-slate-600 font-mono">
                   Phase 7 Safe Approval: Review diff before approving.

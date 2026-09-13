@@ -72,6 +72,7 @@ async def run_repository_analysis(
                     corrected_code=detected_issue.corrected_code,
                     original_content=source_by_path.get(detected_issue.file_path or ""),
                     fingerprint=fingerprint,
+                    cross_file_fixes=[fix.model_dump() for fix in detected_issue.cross_file_fixes] if detected_issue.cross_file_fixes else None,
                 )
             )
         analysis_run.status = "completed"

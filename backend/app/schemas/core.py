@@ -106,6 +106,7 @@ class IssueCreate(BaseModel):
     suggested_fix: str | None = None
     corrected_code: str | None = None
     fingerprint: str | None = None
+    cross_file_fixes: list[dict] | None = None
 
 
 class IssueUpdate(BaseModel):

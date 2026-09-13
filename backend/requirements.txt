@@ -14,3 +14,7 @@ aiosqlite>=0.20.0
 sqlalchemy>=2.0.35
 alembic>=1.13.0
 pytest>=8.3.0
+faiss-cpu>=1.9.0
+langchain-community>=0.3.0
+langchain-google-genai>=2.0.0
+tiktoken>=0.8.0
