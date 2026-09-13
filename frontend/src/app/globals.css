@@ -46,6 +46,18 @@ body {
   position: relative;
 }
 
+img {
+  max-width: 100%;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+svg {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
 /* Ambient background layers */
 body::before {
   content: '';

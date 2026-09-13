@@ -108,7 +108,7 @@ export default function RepositoryDetailsPage() {
                   ['Default branch', repository.default_branch],
                   ['Stars / forks', `${repository.stargazers_count ?? 0} / ${repository.forks_count ?? 0}`],
                   ['Open issues', String(repository.open_issues_count ?? 0)],
-                  ['Owner', repository.owner],
+                  ['Owner', typeof repository.owner === 'string' ? repository.owner : repository.owner?.login || '—'],
                   ['Size', repository.repository_size ? `${(repository.repository_size / 1024).toFixed(1)} MB` : '—'],
                   ['Private', repository.is_private ? 'Yes' : 'No'],
                   ['Fork', repository.is_fork ? 'Yes' : 'No'],

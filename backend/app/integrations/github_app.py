@@ -22,6 +22,9 @@ class GitHubAppError(Exception):
 class GitHubUser:
     id: int
     login: str
+    name: str | None = None
+    avatar_url: str | None = None
+    html_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -197,7 +200,13 @@ class GitHubAppService:
             raise GitHubAppError("Failed to fetch GitHub user profile", 502)
 
         data = response.json()
-        return GitHubUser(id=int(data["id"]), login=str(data["login"]))
+        return GitHubUser(
+            id=int(data["id"]),
+            login=str(data["login"]),
+            name=data.get("name") or str(data["login"]),
+            avatar_url=data.get("avatar_url") or "https://github.com/ghost.png",
+            html_url=data.get("html_url") or f"https://github.com/{data['login']}",
+        )
 
     async def get_user_repositories(self, access_token: str) -> list[dict]:
         repos = await self.list_repositories(access_token)
@@ -216,6 +225,48 @@ class GitHubAppService:
                 "language": repo.language,
             }
             for repo in repos
+        ]
+
+    async def get_public_user_repositories(self, username: str) -> list[dict]:
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        if settings.github_token:
+            headers["Authorization"] = f"Bearer {settings.github_token}"
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0, transport=self.transport) as client:
+                response = await client.get(
+                    f"{self.base_url}/users/{quote(username, safe='')}/repos?sort=updated&per_page=100",
+                    headers=headers,
+                )
+        except httpx.TimeoutException as exc:
+            raise GitHubAppError("GitHub request timed out", 504) from exc
+        except httpx.HTTPError as exc:
+            raise GitHubAppError("GitHub request failed", 502) from exc
+
+        if response.status_code == 404:
+            raise GitHubAppError(f"GitHub user '{username}' not found", 404)
+        if response.is_error:
+            raise GitHubAppError(f"Failed to fetch public repositories for '{username}'", 502)
+
+        data = response.json()
+        return [
+            {
+                "id": int(item["id"]),
+                "name": str(item["name"]),
+                "full_name": str(item["full_name"]),
+                "html_url": str(item["html_url"]),
+                "description": item.get("description"),
+                "default_branch": str(item.get("default_branch") or "main"),
+                "private": bool(item.get("private", False)),
+                "owner": {"login": str(item["owner"]["login"]) if isinstance(item.get("owner"), dict) else str(item.get("owner") or username)},
+                "stargazers_count": int(item.get("stargazers_count", 0)),
+                "forks_count": int(item.get("forks_count", 0)),
+                "language": item.get("language"),
+            }
+            for item in data
         ]
 
     async def list_repositories(self, access_token: str) -> list[GitHubAccessibleRepository]:
@@ -424,8 +475,7 @@ def _is_relevant_source_path(path: str) -> bool:
 
 
 def _is_mock_token(token: str) -> bool:
-    client_id = settings.github_client_id
-    if not client_id or client_id.startswith("mock_") or client_id.startswith("your-"):
+    if token.startswith("mock_token_") or token.startswith("mock_"):
         return True
-    return token.startswith("mock_token_")
+    return False
 

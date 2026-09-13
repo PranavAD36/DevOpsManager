@@ -41,9 +41,14 @@ async def get_or_create_github_account(
         account = GitHubAccount(
             github_id=user.id,
             github_login=user.login,
-            avatar_url="https://github.com/ghost.png",
+            avatar_url=user.avatar_url or "https://github.com/ghost.png",
         )
         session.add(account)
+        await session.flush()
+    else:
+        account.github_login = user.login
+        if user.avatar_url:
+            account.avatar_url = user.avatar_url
         await session.flush()
 
     return account

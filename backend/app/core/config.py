@@ -10,20 +10,15 @@ class Settings(BaseSettings):
     debug: bool = True
     allowed_origins: list[str] = [
         "http://localhost:3000",
-<<<<<<< HEAD
+        "http://127.0.0.1:3000",
         "http://localhost:3001",
         "https://dev-ops-manager.vercel.app",
     ]
+    allow_origin_regex: str | None = r"https://.*\.vercel\.app$"
     frontend_url: str = Field(
         default="http://localhost:3000",
         validation_alias=AliasChoices("FRONTEND_URL", "frontend_url"),
     )
-=======
-        "http://127.0.0.1:3000",
-        "https://dev-ops-manager.vercel.app",
-    ]
-    allow_origin_regex: str | None = r"https://.*\.vercel\.app$"
->>>>>>> f62dd4717c27434e0b5ff190c699b5558fef2949
     openrouter_api_key: str | None = None
     gemini_api_key: str | None = None
     ai_provider: str = "openrouter"

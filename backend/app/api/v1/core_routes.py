@@ -161,7 +161,8 @@ async def connect_github_repository(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     try:
-        metadata = await github_client.get_repository_metadata(owner, repo_name)
+        access_token = _get_access_token(request)
+        metadata = await github_client.get_repository_metadata(owner, repo_name, access_token=access_token)
     except GitHubIntegrationError as exc:
         raise github_error(exc) from exc
 
@@ -227,7 +228,8 @@ async def refresh_repository(repository_id: UUID, request: Request, session: Asy
     if repository.provider != "github":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported repository provider")
     try:
-        metadata = await github_client.get_repository_metadata(repository.owner, repository.name)
+        access_token = _get_access_token(request)
+        metadata = await github_client.get_repository_metadata(repository.owner, repository.name, access_token=access_token)
     except GitHubIntegrationError as exc:
         raise github_error(exc) from exc
     apply_github_metadata(repository, metadata)

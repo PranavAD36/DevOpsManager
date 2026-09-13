@@ -34,15 +34,15 @@ def _cookie_options() -> dict[str, object]:
 
 
 def _oauth_state_secret() -> bytes:
-    if not settings.github_client_secret:
-        raise ValueError("GitHub OAuth signing secret is not configured")
-    return settings.github_client_secret.encode("utf-8")
+    secret = settings.github_client_secret or "devopsmanager-default-oauth-secret-key-32b"
+    return secret.encode("utf-8")
 
 
-def _create_signed_oauth_state() -> str:
+def _create_signed_oauth_state(frontend_url: str | None = None) -> str:
     payload = {
         "nonce": secrets.token_urlsafe(32),
         "issued_at": int(time.time()),
+        "frontend_url": frontend_url or settings.frontend_url,
     }
     encoded_payload = base64.urlsafe_b64encode(
         json.dumps(payload, separators=(",", ":")).encode("utf-8")
@@ -52,7 +52,7 @@ def _create_signed_oauth_state() -> str:
     return f"{encoded_payload.decode('ascii')}.{encoded_signature.decode('ascii')}"
 
 
-def _verify_signed_oauth_state(state: str) -> bool:
+def _verify_and_decode_oauth_state(state: str) -> dict[str, Any] | None:
     try:
         encoded_payload, encoded_signature = state.split(".", 1)
         expected_signature = hmac.new(
@@ -60,14 +60,20 @@ def _verify_signed_oauth_state(state: str) -> bool:
         ).digest()
         provided_signature = base64.urlsafe_b64decode(encoded_signature + "=" * (-len(encoded_signature) % 4))
         if not hmac.compare_digest(provided_signature, expected_signature):
-            return False
+            return None
         payload = json.loads(
             base64.urlsafe_b64decode(encoded_payload + "=" * (-len(encoded_payload) % 4))
         )
-        issued_at = int(payload["issued_at"])
-        return bool(payload["nonce"]) and 0 <= time.time() - issued_at <= OAUTH_STATE_TTL_SECONDS
-    except (ValueError, KeyError, TypeError, json.JSONDecodeError, UnicodeDecodeError):
-        return False
+        issued_at = int(payload.get("issued_at", 0))
+        if not (bool(payload.get("nonce")) and 0 <= time.time() - issued_at <= OAUTH_STATE_TTL_SECONDS):
+            return None
+        return payload
+    except Exception:
+        return None
+
+
+def _verify_signed_oauth_state(state: str) -> bool:
+    return _verify_and_decode_oauth_state(state) is not None
 
 
 class ConnectRepositoryRequest(BaseModel):
@@ -102,8 +108,24 @@ def _get_access_token(request: Request) -> str:
 
 
 @router.get("/authorize")
-async def authorize_github(response: Response) -> dict[str, str]:
-    state = _create_signed_oauth_state()
+async def authorize_github(
+    request: Request,
+    response: Response,
+    redirect_url: str | None = Query(default=None),
+) -> dict[str, str]:
+    origin = redirect_url
+    if not origin:
+        referer = request.headers.get("referer")
+        origin_header = request.headers.get("origin")
+        if referer:
+            parsed = urlparse(referer)
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+        elif origin_header:
+            origin = origin_header
+    if not origin:
+        origin = settings.frontend_url
+
+    state = _create_signed_oauth_state(frontend_url=origin)
     auth_url = github_app_service.get_authorization_url(state)
 
     return {"authorization_url": auth_url, "state": state}
@@ -116,18 +138,16 @@ async def github_callback(
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
     error_description: str | None = Query(default=None),
-<<<<<<< HEAD
-=======
-    oauth_state: str | None = Cookie(default=None, alias=STATE_COOKIE),
     session: AsyncSession = Depends(get_db_session),
->>>>>>> f62dd4717c27434e0b5ff190c699b5558fef2949
 ) -> RedirectResponse:
-    frontend_base = settings.frontend_url.rstrip("/")
+    state_payload = _verify_and_decode_oauth_state(state) if state else None
+    frontend_base = (state_payload.get("frontend_url") if state_payload else settings.frontend_url).rstrip("/")
+
     if error:
         err_msg = error_description or "GitHub authorization was denied"
         return RedirectResponse(url=f"{frontend_base}/github/connect?error={err_msg}", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
-    if not code or not state or not _verify_signed_oauth_state(state):
+    if not code or not state or not state_payload:
         return RedirectResponse(url=f"{frontend_base}/github/connect?error=Invalid+GitHub+authorization+callback", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
     try:
@@ -137,7 +157,7 @@ async def github_callback(
     except GitHubAppError as exc:
         return RedirectResponse(url=f"{frontend_base}/github/connect?error={str(exc)}", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
-    redirect_url = f"{frontend_base}/github/connect?status=connected"
+    redirect_url = f"{frontend_base}/github/connect?status=connected&token={access_token}"
     response = RedirectResponse(url=redirect_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
     response.set_cookie(
         key="github_access_token",
@@ -157,9 +177,9 @@ async def get_github_user(request: Request) -> dict[str, Any]:
         return {
             "id": user.id,
             "login": user.login,
-            "name": user.login,
-            "avatar_url": "https://github.com/ghost.png",
-            "html_url": f"https://github.com/{user.login}",
+            "name": user.name or user.login,
+            "avatar_url": user.avatar_url or "https://github.com/ghost.png",
+            "html_url": user.html_url or f"https://github.com/{user.login}",
         }
     except GitHubAppError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -170,6 +190,14 @@ async def get_github_repositories(request: Request) -> list[dict[str, Any]]:
     token = _get_access_token(request)
     try:
         return await github_app_service.get_user_repositories(token)
+    except GitHubAppError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/users/{username}/repositories")
+async def get_public_github_repositories(username: str) -> list[dict[str, Any]]:
+    try:
+        return await github_app_service.get_public_user_repositories(username)
     except GitHubAppError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 

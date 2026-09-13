@@ -130,11 +130,40 @@ async function parseErrorMessage(response: Response): Promise<string> {
   return JSON.stringify(errorBody);
 }
 
+export function getStoredAuthToken(): string | null {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('github_access_token');
+  }
+  return null;
+}
+
+export function setAuthToken(token: string): void {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('github_access_token', token);
+  }
+}
+
+export function clearAuthToken(): void {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('github_access_token');
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = getStoredAuthToken();
+  const authHeaders: Record<string, string> = {};
+  if (token) {
+    authHeaders['Authorization'] = `Bearer ${token}`;
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders,
+      ...options?.headers,
+    },
   });
   if (!response.ok) throw new Error(await parseErrorMessage(response));
   if (response.status === 204) return undefined as T;
@@ -157,9 +186,14 @@ export const api = {
   rejectIssueFix: (id: string) => request<Issue>(`/v1/issues/${id}/reject`, { method: 'POST' }),
   updateIssueFix: (id: string, payload: { corrected_code?: string; suggested_fix?: string }) => request<Issue>(`/v1/issues/${id}/update-fix`, { method: 'POST', body: JSON.stringify(payload) }),
   applySuggestion: (id: string, commit_message?: string) => request<Issue>(`/v1/analysis/suggestions/${id}/apply`, { method: 'POST', body: JSON.stringify({ commit_message }) }),
-  getGithubAuthorizationUrl: () => request<{ authorization_url: string }>('/v1/github/authorize'),
-  getGithubConnection: () => request<{ connected: boolean; username: string }>('/v1/github/me'),
+  getGithubAuthorizationUrl: () => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const query = origin ? `?redirect_url=${encodeURIComponent(origin)}` : '';
+    return request<{ authorization_url: string }>(`/v1/github/authorize${query}`);
+  },
+  getGithubConnection: () => request<{ id: number; login: string; name: string | null; avatar_url: string | null; html_url: string }>('/v1/github/me'),
   listGithubRepositories: () => request<GitHubRepository[]>('/v1/github/repositories'),
+  getPublicUserRepositories: (username: string) => request<GitHubRepository[]>(`/v1/github/users/${encodeURIComponent(username)}/repositories`),
   connectGithubRepository: (payload: GitHubConnectRepositoryInput) => request<{ project_id: string; repository_id: string; message: string }>('/v1/github/repositories/connect', { method: 'POST', body: JSON.stringify(payload) }),
 };
 
