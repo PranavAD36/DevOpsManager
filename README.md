@@ -79,6 +79,19 @@ npm run dev
 
 ---
 
+### Set Up and Run the Backend API
+cd backend
+
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Run database migrations
+alembic upgrade head
+
+# Start FastAPI dev server
+uvicorn app.main:app --reload
+
+
 ## 📂 Architecture Overview
 
 DevOpsManager uses a robust, modern tech stack:
