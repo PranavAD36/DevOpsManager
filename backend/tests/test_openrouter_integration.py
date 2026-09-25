@@ -41,6 +41,7 @@ def test_openrouter_http_error_mapping(monkeypatch, status_code: int, expected_e
             def __init__(self, code: int):
                 self.status_code = code
                 self.is_error = True
+                self.text = f"Error {code}"
 
             def json(self):
                 return {}

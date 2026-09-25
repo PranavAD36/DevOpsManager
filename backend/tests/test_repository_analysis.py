@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
-from app.models.core import AnalysisRun, Project, Repository
+from app.models.core import AnalysisRun, Project, Repository, GitHubAccount
 from app.models.core import Issue
 from app.services import repository_analysis
 from app.services.ai_service import AIProviderError, AnalyzedIssue, RepositoryAnalysisResult
@@ -22,8 +22,10 @@ AnalysisSessionLocal = async_sessionmaker(bind=analysis_engine, class_=AsyncSess
 
 
 def _make_records() -> tuple[Project, Repository, AnalysisRun]:
-    project = Project(name=f"Analysis project {uuid4()}")
+    account = GitHubAccount(github_id=99999, github_login="test-user", avatar_url="https://github.com/ghost.png")
+    project = Project(github_account=account, name=f"Analysis project {uuid4()}")
     repository = Repository(
+        github_account=account,
         project=project,
         provider="github",
         owner="octocat",
@@ -33,7 +35,7 @@ def _make_records() -> tuple[Project, Repository, AnalysisRun]:
         default_branch="main",
         language="Python",
     )
-    run = AnalysisRun(project=project, repository=repository, status="pending")
+    run = AnalysisRun(github_account=account, project=project, repository=repository, status="pending")
     return project, repository, run
 
 
@@ -51,7 +53,7 @@ def test_repository_analysis_completes_and_creates_issues(monkeypatch) -> None:
                 async def get_repository_source_files(self, *args, **kwargs):
                     return [SimpleNamespace(path="app.py", content="print('hello')")]
 
-            async def fake_analyzer(repository_name, language, files, provider=None):
+            async def fake_analyzer(repository_name, language, files, provider=None, custom_rules=None):
                 assert repository_name == "octocat/hello-world"
                 assert files[0].path == "app.py"
                 return RepositoryAnalysisResult(

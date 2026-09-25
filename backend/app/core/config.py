@@ -12,6 +12,8 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:3001",
+        "http://localhost:3002",
+        "http://localhost:3003",
         "https://dev-ops-manager.vercel.app",
     ]
     allow_origin_regex: str | None = r"https://.*\.vercel\.app$"
@@ -40,6 +42,9 @@ class Settings(BaseSettings):
         defaults = [
             "http://localhost:3000",
             "http://127.0.0.1:3000",
+            "http://localhost:3001",
+            "http://localhost:3002",
+            "http://localhost:3003",
             "https://dev-ops-manager.vercel.app",
         ]
         if v in (None, ""):

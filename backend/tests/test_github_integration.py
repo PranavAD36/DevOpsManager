@@ -71,41 +71,44 @@ def test_github_metadata_service_with_mocked_http() -> None:
 
 
 def test_connect_duplicate_refresh_and_analysis_requires_github_auth(monkeypatch) -> None:
-    async def fake_metadata(owner: str, repo: str) -> GitHubRepositoryMetadata:
+    AUTH_HEADERS = {"Authorization": "Bearer mock_token_test"}
+
+    async def fake_metadata(owner: str, repo: str, access_token: str | None = None) -> GitHubRepositoryMetadata:
         assert owner == "octocat"
         assert repo == "hello-world"
         return metadata()
 
     monkeypatch.setattr(core_routes.github_client, "get_repository_metadata", fake_metadata)
     with TestClient(app) as client:
-        project = client.post("/v1/projects", json={"name": f"GitHub test {uuid4()}"}).json()
+        project = client.post("/v1/projects", json={"name": f"GitHub test {uuid4()}"}, headers=AUTH_HEADERS).json()
         project_id = project["id"]
         try:
-            first = client.post(f"/v1/projects/{project_id}/repositories/connect", json={"url": "https://github.com/octocat/hello-world"})
+            first = client.post(f"/v1/projects/{project_id}/repositories/connect", json={"url": "https://github.com/octocat/hello-world"}, headers=AUTH_HEADERS)
             assert first.status_code == 201
             repository_id = first.json()["id"]
-            second = client.post(f"/v1/projects/{project_id}/repositories/connect", json={"url": "https://github.com/octocat/hello-world.git"})
+            second = client.post(f"/v1/projects/{project_id}/repositories/connect", json={"url": "https://github.com/octocat/hello-world.git"}, headers=AUTH_HEADERS)
             assert second.status_code == 200
             assert second.json()["id"] == repository_id
-            assert client.post(f"/v1/repositories/{repository_id}/refresh").status_code == 200
+            assert client.post(f"/v1/repositories/{repository_id}/refresh", headers=AUTH_HEADERS).status_code == 200
             analysis = client.post(f"/v1/repositories/{repository_id}/analysis-runs")
             assert analysis.status_code == 401
         finally:
-            assert client.delete(f"/v1/projects/{project_id}").status_code == 204
+            assert client.delete(f"/v1/projects/{project_id}", headers=AUTH_HEADERS).status_code == 204
 
 
 def test_github_not_found_and_missing_project(monkeypatch) -> None:
-    async def missing_metadata(owner: str, repo: str) -> GitHubRepositoryMetadata:
+    AUTH = {"Authorization": "Bearer test-token"}
+    async def missing_metadata(owner: str, repo: str, access_token: str | None = None) -> GitHubRepositoryMetadata:
         raise GitHubIntegrationError("GitHub repository not found", 404)
 
     monkeypatch.setattr(core_routes.github_client, "get_repository_metadata", missing_metadata)
     with TestClient(app) as client:
-        assert client.post(f"/v1/projects/{uuid4()}/repositories/connect", json={"url": "https://github.com/octocat/missing"}).status_code == 404
-        project_id = client.post("/v1/projects", json={"name": f"Invalid URL {uuid4()}"}).json()["id"]
+        assert client.post(f"/v1/projects/{uuid4()}/repositories/connect", json={"url": "https://github.com/octocat/missing"}, headers=AUTH).status_code == 404
+        project_id = client.post("/v1/projects", json={"name": f"Invalid URL {uuid4()}"}, headers=AUTH).json()["id"]
         try:
-            assert client.post(f"/v1/projects/{project_id}/repositories/connect", json={"url": "https://example.com/repo"}).status_code == 400
+            assert client.post(f"/v1/projects/{project_id}/repositories/connect", json={"url": "https://example.com/repo"}, headers=AUTH).status_code == 400
         finally:
-            assert client.delete(f"/v1/projects/{project_id}").status_code == 204
+            assert client.delete(f"/v1/projects/{project_id}", headers=AUTH).status_code == 204
 
 
 def test_github_connect_cors_preflight_and_post() -> None:
@@ -227,7 +230,15 @@ def test_callback_accepts_valid_signed_state_without_cookie(monkeypatch) -> None
             assert code == "oauth-code"
             return "access-token"
 
+        async def fake_get_authenticated_user(self, token: str):
+            from app.integrations.github_app import GitHubUser
+            return GitHubUser(id=1, login="testuser", name="Test User", avatar_url="https://github.com/ghost.png", html_url="https://github.com/testuser")
+
         monkeypatch.setattr(github_app_service, "exchange_code_for_token", exchange_code_for_token)
+        monkeypatch.setattr("app.services.auth_service.GitHubAppService.get_authenticated_user", fake_get_authenticated_user)
+        # Mock get_or_create_github_account to avoid needing a real DB session
+        from unittest.mock import AsyncMock
+        monkeypatch.setattr("app.api.v1.github_routes.get_or_create_github_account", AsyncMock(return_value=None))
         response = await github_callback(
             Request({"type": "http", "headers": []}),
             code="oauth-code",
@@ -235,7 +246,7 @@ def test_callback_accepts_valid_signed_state_without_cookie(monkeypatch) -> None
             error=None,
             error_description=None,
         )
-        assert response.headers["location"] == "https://dev-ops-manager.vercel.app/github/connect?status=connected"
+        assert response.headers["location"] == "https://dev-ops-manager.vercel.app/github/connect?status=connected&token=access-token"
 
     asyncio.run(run())
 
