@@ -169,7 +169,17 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       ...options?.headers,
     },
   });
-  if (!response.ok) throw new Error(await parseErrorMessage(response));
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      clearAuthToken();
+      if (typeof window !== 'undefined' && !window.location.pathname.includes('/github/connect')) {
+        window.location.href = '/github/connect?error=Session+expired.+Please+log+in+again.';
+      }
+    }
+    throw new Error(await parseErrorMessage(response));
+  }
+  
   if (response.status === 204) return undefined as T;
   return response.json();
 }

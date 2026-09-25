@@ -142,6 +142,10 @@ export default function GitHubConnectPage() {
   }
 
   async function handleSelectRepo(repo: GitHubRepo) {
+    if (!user) {
+      setError('You must connect your GitHub account to analyze repositories.');
+      return;
+    }
     try {
       setBusyRepo(repo.full_name);
       setError(null);
