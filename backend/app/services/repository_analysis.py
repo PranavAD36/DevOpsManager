@@ -1,5 +1,7 @@
+import hashlib
 from datetime import datetime, timezone
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.integrations.github_app import GitHubAppError, GitHubAppService
@@ -40,9 +42,7 @@ async def run_repository_analysis(
             custom_rules=project.custom_rules
         )
         source_by_path = {item.path: item.content for item in files}
-        import hashlib
-        from sqlalchemy import select
-        
+
         for detected_issue in result.issues:
             # Generate fingerprint
             fp_content = f"{detected_issue.file_path}:{detected_issue.title}:{detected_issue.category}"

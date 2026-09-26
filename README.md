@@ -54,7 +54,12 @@ pip install -r requirements.txt
 alembic upgrade head
 
 # Start FastAPI dev server
-npm start # or `uvicorn app.main:app --reload`
+npm start 
+
+or 
+
+uvicorn app.main:app --reload
+
 ```
 - **Backend API**: `http://localhost:8000`
 - **Interactive API Docs (Swagger UI)**: `http://localhost:8000/docs`
@@ -65,6 +70,11 @@ Open a new terminal window:
 cd frontend
 npm install
 npm run dev
+
+or 
+
+cd frontend && npm run dev
+
 ```
 - **Frontend Application**: `http://localhost:3000`
 
