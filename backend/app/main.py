@@ -24,6 +24,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Backward-compatible ASGI entrypoint for commands like:
+# uvicorn app.main:main --reload
+main = app
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,

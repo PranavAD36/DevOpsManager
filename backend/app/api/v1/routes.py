@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1.ai_routes import router as ai_router
 from app.api.v1.core_routes import router as core_router
 from app.api.v1.database_routes import router as database_router
+from app.api.v1.engineering_routes import router as engineering_router
 from app.api.v1.github_routes import router as github_router
 from app.api.v1.rag_routes import router as rag_router
 
@@ -11,6 +12,7 @@ router.include_router(database_router)
 router.include_router(ai_router)
 router.include_router(github_router)
 router.include_router(core_router)
+router.include_router(engineering_router)
 router.include_router(rag_router)
 
 

@@ -70,6 +70,12 @@ class Settings(BaseSettings):
             return v.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
         return v
 
+    @property
+    def is_local_db(self) -> bool:
+        """Check if using local SQLite or localhost PostgreSQL."""
+        url = self.database_url
+        return url.startswith("sqlite") or "localhost" in url or "127.0.0.1" in url
+
     @field_validator("debug", mode="before")
     @classmethod
     def set_debug_for_environment(cls, v: bool, info) -> bool:

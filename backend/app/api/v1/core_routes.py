@@ -367,8 +367,11 @@ async def delete_issue(issue_id: UUID, request: Request, session: AsyncSession =
 async def approve_issue_fix(issue_id: UUID, request: Request, session: AsyncSession = Depends(get_db_session)) -> Issue:
     github_account = await get_authenticated_account(request, session)
     issue = await get_issue_or_404(issue_id, session, github_account)
-    issue.status = "approved"
-    issue.approved_at = datetime.now(timezone.utc)
+    if issue.status == "rejected":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This suggestion has been rejected")
+    if issue.status not in {"approved", "applied"}:
+        issue.status = "approved"
+        issue.approved_at = datetime.now(timezone.utc)
     await session.commit()
     await session.refresh(issue)
     return issue
@@ -445,4 +448,3 @@ async def apply_suggestion(suggestion_id: UUID, request: Request, payload: dict[
     await session.commit()
     await session.refresh(issue)
     return issue
-

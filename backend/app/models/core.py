@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, Uuid, JSON
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, Uuid, JSON, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -149,3 +149,59 @@ class Issue(Base):
     project: Mapped[Project] = relationship(back_populates="issues")
     repository: Mapped[Repository | None] = relationship(back_populates="issues")
     analysis_run: Mapped[AnalysisRun | None] = relationship(back_populates="issues")
+
+
+class EngineeringAlert(Base):
+    __tablename__ = "engineering_alerts"
+    __table_args__ = (
+        UniqueConstraint("github_account_id", "fingerprint", name="uq_engineering_alerts_owner_fingerprint"),
+        Index("ix_engineering_alerts_owner_status", "github_account_id", "status"),
+        Index("ix_engineering_alerts_created_at", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    github_account_id: Mapped[UUID] = mapped_column(
+        ForeignKey("github_accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    repository_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("repositories.id", ondelete="SET NULL")
+    )
+    source: Mapped[str] = mapped_column(String(100), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    severity: Mapped[str] = mapped_column(String(50), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="open")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+
+class WorkflowRun(Base):
+    __tablename__ = "workflow_runs"
+    __table_args__ = (
+        UniqueConstraint("repository_id", "github_run_id", name="uq_workflow_runs_repository_github_id"),
+        Index("ix_workflow_runs_owner_created", "github_account_id", "created_at"),
+        Index("ix_workflow_runs_repository_conclusion", "repository_id", "conclusion"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    github_account_id: Mapped[UUID] = mapped_column(
+        ForeignKey("github_accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    repository_id: Mapped[UUID] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False
+    )
+    github_run_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    workflow_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    branch: Mapped[str | None] = mapped_column(String(255))
+    commit_sha: Mapped[str | None] = mapped_column(String(64))
+    actor: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    conclusion: Mapped[str | None] = mapped_column(String(50))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_seconds: Mapped[int | None] = mapped_column(Integer)
+    html_url: Mapped[str] = mapped_column(String(2048), nullable=False, default="")

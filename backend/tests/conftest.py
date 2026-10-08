@@ -39,7 +39,7 @@ class MockGitHubUser:
 
 
 @pytest.fixture(autouse=True, scope="function")
-def setup_test_db():
+def setup_test_db(monkeypatch):
     async def init_tables():
         async with test_engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
@@ -57,8 +57,12 @@ def setup_test_db():
                 await session.rollback()
                 raise
 
+    async def skip_application_database_initialization() -> None:
+        return None
+
     # Initialize database
     asyncio.run(init_tables())
+    monkeypatch.setattr("app.main.init_db", skip_application_database_initialization)
     
     # Set up dependency override for database session
     app.dependency_overrides[get_db_session] = override_get_db_session
@@ -86,7 +90,6 @@ def setup_test_db():
         app.dependency_overrides.clear()
     
     asyncio.run(drop_tables())
-
 
 
 

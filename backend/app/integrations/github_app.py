@@ -68,6 +68,21 @@ class GitHubCommitResult:
     html_url: str
 
 
+@dataclass(frozen=True)
+class GitHubWorkflowRun:
+    id: int
+    name: str
+    branch: str | None
+    commit_sha: str | None
+    actor: str | None
+    status: str
+    conclusion: str | None
+    created_at: datetime | None
+    updated_at: datetime | None
+    started_at: datetime | None
+    html_url: str
+
+
 class GitHubAppService:
     base_url = "https://api.github.com"
     github_oauth_url = "https://github.com/login/oauth"
@@ -207,6 +222,72 @@ class GitHubAppService:
             avatar_url=data.get("avatar_url") or "https://github.com/ghost.png",
             html_url=data.get("html_url") or f"https://github.com/{data['login']}",
         )
+
+    async def get_workflow_runs(
+        self,
+        access_token: str,
+        owner: str,
+        repository: str,
+        per_page: int = 100,
+    ) -> list[GitHubWorkflowRun]:
+        if _is_mock_token(access_token):
+            raise GitHubAppError("GitHub Actions requires a valid GitHub OAuth token", 401)
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=20.0, transport=self.transport) as client:
+                response = await client.get(
+                    f"{self.base_url}/repos/{owner}/{repository}/actions/runs",
+                    params={"per_page": min(max(per_page, 1), 100)},
+                    headers=headers,
+                )
+        except httpx.TimeoutException as exc:
+            raise GitHubAppError("GitHub Actions request timed out", 504) from exc
+        except httpx.HTTPError as exc:
+            raise GitHubAppError("GitHub Actions request failed", 502) from exc
+
+        if response.status_code == 401:
+            raise GitHubAppError("Invalid or expired GitHub access token", 401)
+        if response.status_code == 403:
+            if response.headers.get("X-RateLimit-Remaining") == "0":
+                raise GitHubAppError("GitHub API rate limit exceeded", 429)
+            raise GitHubAppError("GitHub Actions access denied", 403)
+        if response.status_code == 404:
+            raise GitHubAppError("Repository or GitHub Actions workflow runs not found", 404)
+        if response.status_code == 429:
+            raise GitHubAppError("GitHub API rate limit exceeded", 429)
+        if response.is_error:
+            raise GitHubAppError("GitHub Actions request failed", 502)
+        try:
+            workflow_runs = response.json()["workflow_runs"]
+            if not isinstance(workflow_runs, list):
+                raise TypeError("workflow_runs must be an array")
+            parsed_runs = []
+            for item in workflow_runs:
+                if not isinstance(item, dict):
+                    raise TypeError("workflow run must be an object")
+                actor = item.get("actor")
+                parsed_runs.append(
+                    GitHubWorkflowRun(
+                        id=int(item["id"]),
+                        name=str(item.get("name") or "Unnamed workflow"),
+                        branch=item.get("head_branch"),
+                        commit_sha=item.get("head_sha"),
+                        actor=actor.get("login") if isinstance(actor, dict) else None,
+                        status=str(item.get("status") or "unknown"),
+                        conclusion=item.get("conclusion"),
+                        created_at=_parse_github_datetime(item.get("created_at")),
+                        updated_at=_parse_github_datetime(item.get("updated_at")),
+                        started_at=_parse_github_datetime(item.get("run_started_at")),
+                        html_url=str(item.get("html_url") or ""),
+                    )
+                )
+            return parsed_runs
+        except (KeyError, TypeError, ValueError) as exc:
+            raise GitHubAppError("GitHub returned malformed workflow run data", 502) from exc
 
     async def get_user_repositories(self, access_token: str) -> list[dict]:
         repos = await self.list_repositories(access_token)
@@ -352,6 +433,7 @@ class GitHubAppService:
         max_files: int = 40,
         max_file_bytes: int = 12000,
         max_total_bytes: int = 120000,
+        include_sensitive_files: bool = False,
     ) -> list[GitHubRepositoryFile]:
         if _is_mock_token(access_token):
             return [
@@ -421,7 +503,10 @@ class GitHubAppService:
                     size = int(entry.get("size", 0) or 0)
                     if (
                         entry.get("type") != "blob"
-                        or not _is_relevant_source_path(path)
+                        or not (
+                            is_relevant_source_path(path)
+                            or (include_sensitive_files and _is_sensitive_source_path(path))
+                        )
                         or size > max_file_bytes
                         or len(files) >= max_files
                         or total_bytes + size > max_total_bytes
@@ -509,8 +594,18 @@ class GitHubAppService:
                 headers=headers,
                 follow_redirects=True
             )
+        if response.status_code == 401:
+            raise GitHubAppError("Invalid or expired GitHub access token", 401)
+        if response.status_code == 403:
+            if response.headers.get("X-RateLimit-Remaining") == "0":
+                raise GitHubAppError("GitHub API rate limit exceeded", 429)
+            raise GitHubAppError("GitHub pull request access denied", 403)
+        if response.status_code == 404:
+            raise GitHubAppError("GitHub pull request not found", 404)
+        if response.status_code == 429:
+            raise GitHubAppError("GitHub API rate limit exceeded", 429)
         if response.is_error:
-            raise GitHubAppError(f"Failed to fetch PR diff (HTTP {response.status_code})", 502)
+            raise GitHubAppError("Failed to fetch GitHub pull request diff", 502)
         return response.text
 
     async def create_pull_request_review(self, access_token: str, owner: str, repository: str, pr_number: int, commit_id: str, comments: list[dict]) -> None:
@@ -537,7 +632,7 @@ class GitHubAppService:
             raise GitHubAppError(f"Failed to create PR review (HTTP {response.status_code}): {response.text}", 502)
 
 
-def _is_relevant_source_path(path: str) -> bool:
+def is_relevant_source_path(path: str) -> bool:
     excluded_parts = {".git", "node_modules", ".next", "dist", "build", "__pycache__", ".venv", "venv", "env"}
     parts = set(path.replace("\\", "/").split("/"))
     if parts & excluded_parts:
@@ -556,8 +651,30 @@ def _is_relevant_source_path(path: str) -> bool:
     ) or filename in {"dockerfile", "makefile", "readme"}
 
 
+def _is_sensitive_source_path(path: str) -> bool:
+    normalized = path.replace("\\", "/")
+    parts = [part.lower() for part in normalized.split("/")]
+    if any(part in {".git", "node_modules", ".next", "dist", "build", "__pycache__", ".venv", "venv", "env"} for part in parts):
+        return False
+    filename = parts[-1]
+    return (
+        filename == ".env"
+        or filename.startswith(".env.")
+        or filename in {"id_rsa", "id_ed25519"}
+        or filename.endswith((".pem", ".key", ".p12", ".pfx"))
+    )
+
+
 def _is_mock_token(token: str) -> bool:
     if token.startswith("mock_token_") or token.startswith("mock_"):
         return True
     return False
 
+
+def _parse_github_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("Invalid GitHub timestamp") from exc

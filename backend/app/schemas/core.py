@@ -1,7 +1,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.services.secret_detection import redact_secrets
 
 
 class ProjectCreate(BaseModel):
@@ -137,3 +139,20 @@ class IssueResponse(IssueCreate):
     created_at: datetime
     updated_at: datetime
 
+    @field_validator("title", "description", "suggested_fix", "corrected_code", "original_content", mode="before")
+    @classmethod
+    def mask_credentials(cls, value: str | None) -> str | None:
+        return redact_secrets(value) if value else value
+
+    @field_validator("cross_file_fixes", mode="before")
+    @classmethod
+    def mask_cross_file_credentials(cls, value: list[dict] | None) -> list[dict] | None:
+        if value is None:
+            return None
+        return [
+            {
+                key: redact_secrets(item) if isinstance(item, str) else item
+                for key, item in fix.items()
+            }
+            for fix in value
+        ]

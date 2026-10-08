@@ -62,6 +62,7 @@ export default function Nav() {
             <div className="hidden sm:flex items-center gap-1">
               <NavLink href="/" active={isActive('/')} label="Dashboard" />
               <NavLink href="/projects" active={isActive('/projects')} label="Projects" />
+              <NavLink href="/engineering" active={isActive('/engineering')} label="Engineering" />
               <NavLink href="/github/connect" active={isActive('/github')} label="GitHub" />
             </div>
 
@@ -164,6 +165,7 @@ function MobileNav() {
         <div className="absolute right-6 top-14 glass-panel p-2 min-w-[160px] dm-enter">
           <MobileNavLink href="/" label="Dashboard" onClick={() => setOpen(false)} />
           <MobileNavLink href="/projects" label="Projects" onClick={() => setOpen(false)} />
+          <MobileNavLink href="/engineering" label="Engineering" onClick={() => setOpen(false)} />
           <MobileNavLink href="/github/connect" label="GitHub" onClick={() => setOpen(false)} />
           <div className="mt-2 pt-2 border-t border-[#1e2d4a]">
             <Link href="/github/connect" className="btn-primary w-full !py-2 !text-xs" onClick={() => setOpen(false)}>

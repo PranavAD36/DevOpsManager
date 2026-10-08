@@ -27,6 +27,17 @@ Tailor the AI to your team's exact coding standards.
 - **Custom Rules:** Enforce specific guidelines by adding plain-text rules to your project (e.g., *"Always use React Server Components"*). The AI injects these rules into its prompt during reviews and scans.
 - **Issue Deduplication:** DevOpsManager uses SHA-256 fingerprinting to track issues across scans. If an issue has already been flagged, it won't spam your dashboard again.
 
+### 5. Code Health & Secret Scanning 🔐
+- **Code Health:** After a successful repository analysis, each of six dimensions starts at 100. Unresolved findings subtract 20 points for critical, 10 for high, 5 for medium, or 2 for low severity from the matching dimension. The overall score is the rounded mean of the dimension scores; each dimension is floored at 0. Resolved, rejected, applied, and closed findings are excluded. No score is shown until an analysis completes.
+- **Secret Scanning:** Repository source files can be scanned for common credential patterns. Results include the file, line, type, and a fixed masked value only. Detected secret-containing files are excluded from AI analysis and their content is not stored in generated findings.
+
+### 6. Engineering Intelligence & Security 🔎
+- **GitHub Actions:** View authenticated workflow runs, success/failure rates, durations, and recent failures. Fetching CI Health synchronizes safe workflow metadata for historical trends and repository comparisons.
+- **Trends and reports:** The Engineering page charts recorded issue, analysis, and synchronized CI activity for 7, 30, or 90 days; it also provides weekly, monthly, and custom-range reports. An AI executive summary is generated only from recorded metrics. Commits, pull requests, review times, and deployments are marked unavailable until reliable history is collected.
+- **Repository comparison:** Compare health, open findings, security findings, and CI success where available. Unsupported metrics are explicitly listed rather than filled with fabricated values.
+- **Security and alerts:** The Engineering page displays owner-scoped security findings and deduplicated, read/resolved alerts. Pull-request security reviews cite exact diff evidence, redact credentials before AI analysis, and feed high-severity findings into the security dashboard and alert center.
+- **Incident analysis:** The project Incident Analyzer separates supplied evidence from AI inference; evidence excerpts are checked against the supplied logs, and credential-like values are redacted before provider requests.
+
 ---
 
 ## 🚀 Quick Start Guide

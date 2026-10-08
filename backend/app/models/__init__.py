@@ -1,5 +1,5 @@
 from app.db.base import Base
-from app.models.core import AnalysisRun, Issue, Project, Repository
+from app.models.core import AnalysisRun, EngineeringAlert, Issue, Project, Repository, WorkflowRun
 from app.models.github import GitHubConnection
 
-__all__ = ["AnalysisRun", "Base", "GitHubConnection", "Issue", "Project", "Repository"]
+__all__ = ["AnalysisRun", "Base", "EngineeringAlert", "GitHubConnection", "Issue", "Project", "Repository", "WorkflowRun"]

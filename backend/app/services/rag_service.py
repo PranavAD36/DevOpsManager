@@ -9,6 +9,7 @@ from langchain_core.documents import Document
 
 from app.core.config import settings
 from app.integrations.github_app import GitHubAppService
+from app.services.secret_detection import scan_and_exclude_secret_files, redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ async def index_repository(
         logger.error(f"Failed to fetch files for RAG index {owner}/{repo_name}: {e}")
         raise
 
+    files, _ = scan_and_exclude_secret_files(files)
     if not files:
         logger.warning(f"No valid source files found for {owner}/{repo_name}")
         return
@@ -87,7 +89,7 @@ async def chat_with_repo(repository_id: str, query: str) -> str:
     retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
     relevant_docs = await retriever.ainvoke(query)
     
-    context = "\n\n".join([f"File: {doc.metadata.get('source')}\n```\n{doc.page_content}\n```" for doc in relevant_docs])
+    context = "\n\n".join([f"File: {doc.metadata.get('source')}\n```\n{redact_secrets(doc.page_content)}\n```" for doc in relevant_docs])
     
     llm = get_llm()
     prompt = f"""You are a helpful software engineering assistant with access to the source code of a repository.
@@ -99,4 +101,4 @@ Context:
 Question: {query}
 """
     response = await llm.ainvoke(prompt)
-    return response.content
+    return redact_secrets(str(response.content))
