@@ -149,12 +149,14 @@ export default function ProjectDetailsPage() {
           };
         });
       }
+      const isCompleted = run.status === "completed";
       setMessage(
-        run.status === "completed"
+        isCompleted
           ? "Repository analysis completed."
           : `Analysis ${run.status}: ${run.error_message || "see the latest run below."}`,
       );
       await load();
+      if (isCompleted) setActiveSection("analysis");
     } catch (requestError) {
       setError(
         requestError instanceof Error
