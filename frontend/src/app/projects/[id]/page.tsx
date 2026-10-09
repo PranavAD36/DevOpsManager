@@ -12,6 +12,7 @@ import {
   type Repository,
 } from "../../../lib/api";
 import DiffViewer from "../../../components/DiffViewer";
+import ProjectInsights from "../../../components/ProjectInsights";
 
 export default function ProjectDetailsPage() {
   const { id } = useParams<{ id: string }>();
@@ -38,12 +39,18 @@ export default function ProjectDetailsPage() {
     percent: number;
     steps: { label: string; done: boolean; active: boolean }[];
   } | null>(null);
-  const [activeSection, setActiveSection] = useState<"repositories" | "analysis" | "settings" | "chat">("repositories");
+  const [activeSection, setActiveSection] = useState<"repositories" | "analysis" | "insights" | "settings" | "chat">("repositories");
   const [chatRepositoryId, setChatRepositoryId] = useState<string>("");
   const [chatMessages, setChatMessages] = useState<{role: string, text: string}[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [indexing, setIndexing] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchMessage, setBatchMessage] = useState("");
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchMode, setBatchMode] = useState<"approve" | "reject">("approve");
+  const [batchTargets, setBatchTargets] = useState<Issue[]>([]);
+  const [batchResults, setBatchResults] = useState<{ id: string; title: string; ok: boolean; message: string }[] | null>(null);
 
   async function load() {
     try {
@@ -243,6 +250,68 @@ export default function ProjectDetailsPage() {
     }
   }
 
+  const eligibleIssues = issues.filter(
+    (issue) => issue.status === "open" && issue.file_path && issue.corrected_code,
+  );
+
+  const openIssues = issues.filter((issue) => issue.status === "open");
+
+  function openBatchApproval() {
+    setBatchMode("approve");
+    setBatchMessage("fix: apply AI suggested fixes");
+    setBatchTargets(eligibleIssues);
+    setBatchResults(null);
+    setBatchOpen(true);
+  }
+
+  function openBatchReject() {
+    setBatchMode("reject");
+    setBatchTargets(openIssues);
+    setBatchResults(null);
+    setBatchOpen(true);
+  }
+
+  async function runBatch() {
+    const targets = batchTargets;
+    if (targets.length === 0) return;
+    setBatchRunning(true);
+    setBatchResults(null);
+    setError(null);
+    setMessage(null);
+    const results: { id: string; title: string; ok: boolean; message: string }[] = [];
+    for (const issue of targets) {
+      try {
+        if (batchMode === "reject") {
+          await api.rejectIssueFix(issue.id);
+          results.push({ id: issue.id, title: issue.title, ok: true, message: "rejected" });
+        } else {
+          const suffix = Date.now().toString(36);
+          const base = batchMessage.trim() || "fix: apply AI suggested fixes";
+          const issueCommitMessage = `${base} - ${issue.title}${issue.file_path ? ` (${issue.file_path})` : ""} [${suffix}]`;
+          const applied = await api.applySuggestion(issue.id, issueCommitMessage.slice(0, 500));
+          results.push({ id: issue.id, title: issue.title, ok: true, message: applied.commit_sha || "pushed" });
+        }
+      } catch (requestError) {
+        results.push({
+          id: issue.id,
+          title: issue.title,
+          ok: false,
+          message: requestError instanceof Error ? requestError.message : "Failed",
+        });
+      }
+    }
+    setBatchResults(results);
+    setBatchRunning(false);
+    const succeeded = results.filter((result) => result.ok).length;
+    const noun = `fix${results.length !== 1 ? "es" : ""}`;
+    setMessage(
+      batchMode === "reject"
+        ? `Rejected ${succeeded} of ${results.length} ${noun}.`
+        : `Approved and pushed ${succeeded} of ${results.length} ${noun}.`,
+    );
+    await load();
+  }
+
   const filteredIssues = issues.filter(
     (issue) =>
       (severity === "all" || issue.severity === severity) &&
@@ -373,6 +442,16 @@ export default function ProjectDetailsPage() {
                     {issues.filter((i) => i.status === "open").length}
                   </span>
                 )}
+              </button>
+              <button
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                  activeSection === "insights"
+                    ? "bg-[#152035] text-white shadow-sm"
+                    : "text-slate-400 hover:text-white"
+                }`}
+                onClick={() => setActiveSection("insights")}
+              >
+                Insights
               </button>
               <button
                 className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
@@ -697,6 +776,22 @@ export default function ProjectDetailsPage() {
                   <span className="ml-auto text-xs text-slate-500 font-mono">
                     {filteredIssues.length} issue{filteredIssues.length !== 1 ? "s" : ""}
                   </span>
+                  {eligibleIssues.length > 1 && (
+                    <button
+                      className="btn-accent !py-2 !px-4 !text-xs"
+                      onClick={openBatchApproval}
+                    >
+                      Approve All &amp; Push ({eligibleIssues.length})
+                    </button>
+                  )}
+                  {openIssues.length > 1 && (
+                    <button
+                      className="btn-danger !py-2 !px-4 !text-xs"
+                      onClick={openBatchReject}
+                    >
+                      Reject All ({openIssues.length})
+                    </button>
+                  )}
                 </div>
 
                 {/* Analysis runs with issues */}
@@ -760,6 +855,11 @@ export default function ProjectDetailsPage() {
             )}
 
             {/* ── Settings section ──────────────────────── */}
+            {/* Insights section */}
+            {activeSection === "insights" && (
+              <ProjectInsights repositories={repositories} />
+            )}
+
             {activeSection === "settings" && (
               <ProjectSettings 
                 project={project} 
@@ -945,6 +1045,114 @@ export default function ProjectDetailsPage() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+      {/* Batch approval modal */}
+      {batchOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="batch-title"
+          onClick={(e) => { if (e.target === e.currentTarget && !batchRunning) setBatchOpen(false); }}
+        >
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" style={{ animation: "dm-modal-backdrop 0.2s ease" }} />
+          <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto glass-panel dm-enter">
+            <div className="h-1 rounded-t-xl bg-gradient-to-r from-cyan-500 via-violet-500 to-cyan-500" />
+            <div className="flex items-start justify-between p-5 pb-4 border-b border-[#1e2d4a]/40">
+              <div>
+                <p className="dm-kicker">{batchMode === "reject" ? "Bulk Review" : "Bulk GitHub Write"}</p>
+                <h2 id="batch-title" className="mt-1.5 text-lg font-semibold text-white">
+                  {batchMode === "reject" ? "Reject All " : "Approve All & Push "}
+                  {batchTargets.length} Fix{batchTargets.length !== 1 ? "es" : ""}
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {batchMode === "reject"
+                    ? "Each selected finding is marked as rejected."
+                    : "Each fix is committed to the connected repository in sequence."}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-icon !w-8 !h-8 !rounded-lg"
+                disabled={batchRunning}
+                onClick={() => setBatchOpen(false)}
+                aria-label="Close"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="space-y-2">
+                {batchTargets.map((issue) => {
+                  const result = batchResults?.find((item) => item.id === issue.id);
+                  return (
+                    <div key={issue.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#1e2d4a] bg-[#0b1120]/60 p-3">
+                      <div className="min-w-0">
+                        <p className="text-sm text-slate-200">{issue.title}</p>
+                        <p className="mt-1 font-mono text-xs text-slate-500">{issue.file_path}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={"badge " + (severityColor[issue.severity] || "badge-slate")}>{issue.severity}</span>
+                        {result && (
+                          <span className={"badge " + (result.ok ? "badge-emerald" : "badge-rose")}>
+                            {result.ok ? (batchMode === "reject" ? "Rejected" : "Pushed") : "Failed"}
+                          </span>
+                        )}
+                      </div>
+                      {result && !result.ok && <p className="w-full text-xs text-rose-400">{result.message}</p>}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {batchMode === "approve" && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Commit message prefix</label>
+                  <input
+                    className="input !py-2 text-sm font-mono"
+                    value={batchMessage}
+                    onChange={(e) => setBatchMessage(e.target.value)}
+                    maxLength={200}
+                    disabled={batchRunning}
+                    placeholder="fix: apply AI suggested fixes"
+                  />
+                </div>
+              )}
+
+              {batchResults && (
+                <div className="rounded-xl border border-[#1e2d4a] bg-[#0c111e] p-4 text-sm text-slate-300">
+                  {batchResults.filter((item) => item.ok).length} of {batchResults.length}{" "}
+                  {batchMode === "reject" ? "rejected successfully." : "pushed successfully."}
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col-reverse gap-3 border-t border-[#1e2d4a]/40 p-5 sm:flex-row sm:justify-end">
+              <button className="btn-secondary !py-2.5" disabled={batchRunning} onClick={() => setBatchOpen(false)}>
+                {batchResults ? "Close" : "Cancel"}
+              </button>
+              {!batchResults && (
+                <button
+                  className={(batchMode === "reject" ? "btn-danger" : "btn-accent") + " !py-2.5 !px-6"}
+                  disabled={batchRunning}
+                  onClick={() => void runBatch()}
+                >
+                  {batchRunning ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-3.5 h-3.5 rounded-full border-2 border-slate-950/40 border-t-white" style={{ animation: "dm-spin 0.6s linear infinite" }} />
+                      {batchMode === "reject" ? "Rejecting..." : "Pushing..."}
+                    </span>
+                  ) : (
+                    <>{batchMode === "reject" ? "Reject All" : "Approve All & Push"}</>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1138,16 +1346,6 @@ function IssueCard({
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    className="btn-danger !py-1.5 !px-3 !text-xs"
-                    disabled={busyIssue === issue.id || issue.status === "rejected"}
-                    onClick={(e) => { e.stopPropagation(); onReject(); }}
-                  >
-                    {busyIssue === issue.id && issue.status !== "approved"
-                      ? "Rejecting..."
-                      : issue.status === "rejected" ? "Rejected" : "Reject"}
-                  </button>
-                  <button
-                    type="button"
                     className="btn-accent !py-1.5 !px-4 !text-xs"
                     disabled={busyIssue === issue.id || issue.status === "approved"}
                     onClick={(e) => { e.stopPropagation(); onApprove(); }}
@@ -1155,6 +1353,16 @@ function IssueCard({
                     {busyIssue === issue.id && issue.status !== "rejected"
                       ? "Approving..."
                       : issue.status === "approved" ? "✓ Approved" : "Approve Fix"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-danger !py-1.5 !px-3 !text-xs"
+                    disabled={busyIssue === issue.id || issue.status === "rejected"}
+                    onClick={(e) => { e.stopPropagation(); onReject(); }}
+                  >
+                    {busyIssue === issue.id && issue.status !== "approved"
+                      ? "Rejecting..."
+                      : issue.status === "rejected" ? "Rejected" : "Reject"}
                   </button>
                 </div>
               </div>
