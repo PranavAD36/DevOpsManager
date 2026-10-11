@@ -1,3 +1,6 @@
+import hashlib
+import logging
+from types import SimpleNamespace
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
@@ -9,7 +12,13 @@ from typing import Literal
 
 from app.api.v1.github_routes import _get_access_token
 from app.db.session import get_db_session
-from app.integrations.github_app import GitHubAppError, GitHubAppService, GitHubWorkflowRun
+from app.integrations.github_app import (
+    GitHubAppError,
+    GitHubAppService,
+    GitHubWorkflowRun,
+    _is_sensitive_source_path,
+    is_relevant_source_path,
+)
 from app.models.core import (
     AnalysisRun,
     EngineeringAlert,
@@ -26,15 +35,25 @@ from app.services.ai_service import (
     SecurityReviewFinding,
     analyze_incident_failure,
     analyze_security_pull_request_diff,
+    propose_health_improvements,
+    propose_repository_change,
     summarize_engineering_metrics,
 )
 from app.services.alerts import make_alert_fingerprint, record_alert
+from app.schemas.core import IssueResponse
 from app.services.security_review import persist_security_review_findings
+from app.services.patch_safety import is_probable_fragment
 from app.services.code_health import HEALTH_CATEGORIES, calculate_code_health
-from app.services.secret_detection import SecretFinding, detect_secrets, redact_secrets
+from app.services.secret_detection import (
+    SecretFinding,
+    detect_secrets,
+    redact_secrets,
+    scan_and_exclude_secret_files,
+)
 
 router = APIRouter(tags=["engineering intelligence"])
 github_app_service = GitHubAppService()
+logger = logging.getLogger(__name__)
 
 
 class CodeHealthResponse(BaseModel):
@@ -101,6 +120,25 @@ class EngineeringPoint(BaseModel):
     ci_failures: int
 
 
+class RepositoryActivityPoint(BaseModel):
+    date: date
+    issues_opened: int = 0
+    issues_resolved: int = 0
+    analyses: int = 0
+    ci_runs: int = 0
+
+
+class RepositoryActivityItem(BaseModel):
+    repository_id: UUID
+    full_name: str
+    issues_opened: int = 0
+    issues_resolved: int = 0
+    analyses: int = 0
+    ci_runs: int = 0
+    total_activity: int = 0
+    daily: list[RepositoryActivityPoint] = Field(default_factory=list)
+
+
 class EngineeringTrendResponse(BaseModel):
     start_date: date
     end_date: date
@@ -108,6 +146,7 @@ class EngineeringTrendResponse(BaseModel):
     available_metrics: list[str]
     unavailable_metrics: list[str]
     series: list[EngineeringPoint]
+    repository_activity: list[RepositoryActivityItem] = Field(default_factory=list)
     executive_summary: str | None = None
     security_findings: int = 0
     code_health: int | None = None
@@ -116,7 +155,7 @@ class EngineeringTrendResponse(BaseModel):
 
 
 class RepositoryComparisonRequest(BaseModel):
-    repository_ids: list[UUID] = Field(min_length=2, max_length=10)
+    repository_ids: list[UUID] = Field(min_length=1, max_length=10)
 
 
 class RepositoryComparisonItem(BaseModel):
@@ -504,6 +543,18 @@ async def _build_engineering_trends(
         workflow_query = workflow_query.where(WorkflowRun.repository_id == repository_id)
     workflow_runs = list((await session.scalars(workflow_query)).all())
 
+    repository_rows = list(
+        (
+            await session.scalars(
+                select(Repository).where(
+                    Repository.project_id == project.id,
+                    Repository.github_account_id == account.id,
+                )
+            )
+        ).all()
+    )
+    repository_names = {repository.id: repository.full_name for repository in repository_rows}
+
     start_day = start.date()
     end_day = (end - timedelta(microseconds=1)).date()
     totals: dict[date, dict[str, int]] = {}
@@ -541,6 +592,57 @@ async def _build_engineering_trends(
             totals[created.date()]["ci_runs"] += 1
             if run.conclusion == "failure":
                 totals[created.date()]["ci_failures"] += 1
+
+    def _empty_activity() -> dict[str, int]:
+        return {"issues_opened": 0, "issues_resolved": 0, "analyses": 0, "ci_runs": 0}
+
+    repository_activity_map: dict[UUID, dict[date, dict[str, int]]] = {}
+
+    def _activity_bucket(repo_id: UUID, day: date) -> dict[str, int]:
+        return repository_activity_map.setdefault(repo_id, {}).setdefault(day, _empty_activity())
+
+    for issue in issues:
+        if issue.repository_id is None:
+            continue
+        created = _as_utc(issue.created_at)
+        if start <= created < end:
+            _activity_bucket(issue.repository_id, created.date())["issues_opened"] += 1
+        updated = _as_utc(issue.updated_at)
+        if issue.status.lower() in {"resolved", "applied"} and start <= updated < end:
+            _activity_bucket(issue.repository_id, updated.date())["issues_resolved"] += 1
+    for run in runs:
+        created = _as_utc(run.created_at)
+        if start <= created < end:
+            _activity_bucket(run.repository_id, created.date())["analyses"] += 1
+    for run in workflow_runs:
+        created = _as_utc(run.created_at)
+        if start <= created < end:
+            _activity_bucket(run.repository_id, created.date())["ci_runs"] += 1
+
+    repository_activity: list[RepositoryActivityItem] = []
+    for repo_id, days_map in repository_activity_map.items():
+        aggregate = _empty_activity()
+        for counts in days_map.values():
+            for key, value in counts.items():
+                aggregate[key] += value
+        total_activity = sum(aggregate.values())
+        repository_activity.append(
+            RepositoryActivityItem(
+                repository_id=repo_id,
+                full_name=repository_names.get(repo_id, "Unknown repository"),
+                issues_opened=aggregate["issues_opened"],
+                issues_resolved=aggregate["issues_resolved"],
+                analyses=aggregate["analyses"],
+                ci_runs=aggregate["ci_runs"],
+                total_activity=total_activity,
+                daily=[
+                    RepositoryActivityPoint(date=day, **counts)
+                    for day, counts in sorted(days_map.items())
+                ],
+            )
+        )
+    repository_activity.sort(key=lambda item: (-item.total_activity, item.full_name))
+
     available_metrics = ["issues_opened", "issues_resolved", "analyses", "analysis_failures"]
     unavailable_metrics = [
         "commits",
@@ -618,6 +720,7 @@ async def _build_engineering_trends(
             EngineeringPoint(date=day, **counts)
             for day, counts in sorted(totals.items())
         ],
+        repository_activity=repository_activity,
         security_findings=security_findings,
         code_health=code_health,
         top_problems=top_problems,
@@ -698,7 +801,8 @@ async def get_historical_engineering_report(
     try:
         summary = await summarize_engineering_metrics(metrics)
     except AIProviderError as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        logger.warning("Engineering report executive summary unavailable: %s", exc)
+        summary = None
     return report.model_copy(update={"executive_summary": summary})
 
 
@@ -904,3 +1008,263 @@ async def update_engineering_alert(
     await session.commit()
     await session.refresh(alert)
     return alert
+
+
+class HealthSuggestionRequest(BaseModel):
+    max_suggestions: int = Field(default=5, ge=1, le=10)
+
+
+class ChangeProposalRequest(BaseModel):
+    instruction: str = Field(min_length=3, max_length=2000)
+
+
+class SuggestionListResponse(BaseModel):
+    repository_id: UUID
+    summary: str
+    suggestions: list[IssueResponse]
+
+
+async def _fetch_analyzable_files(request: Request, repository: Repository) -> tuple[list, dict[str, str]]:
+    service = GitHubAppService()
+    files = await service.get_repository_source_files(
+        _get_access_token(request),
+        repository.owner,
+        repository.name,
+        repository.default_branch,
+    )
+    files, _ = scan_and_exclude_secret_files(files)
+    safe_files = [item for item in files if is_relevant_source_path(item.path)]
+    return safe_files, {item.path: item.content for item in safe_files}
+
+
+async def _persist_proposals(
+    session: AsyncSession,
+    account: GitHubAccount,
+    project: Project,
+    repository: Repository,
+    proposals: list,
+    source_by_path: dict[str, str],
+    category_prefix: str,
+    attach_to_existing: bool = False,
+) -> tuple[list[Issue], int, int]:
+    created: list[Issue] = []
+    skipped_fragments = 0
+    skipped_secrets = 0
+    for proposal in proposals:
+        if not proposal.file_path or not proposal.corrected_code:
+            continue
+        if _is_sensitive_source_path(proposal.file_path):
+            # Never create or push changes for secret-bearing files such as .env or private keys.
+            skipped_secrets += 1
+            continue
+        original_content = source_by_path.get(proposal.file_path)
+        if is_probable_fragment(original_content, proposal.corrected_code):
+            # The model returned only a snippet; pushing it would delete the rest of the file.
+            skipped_fragments += 1
+            continue
+        if detect_secrets([SimpleNamespace(path=proposal.file_path, content=proposal.corrected_code)]):
+            # The AI-authored content itself contains a credential-like value; refuse to store or push it.
+            skipped_secrets += 1
+            continue
+        if attach_to_existing:
+            target = await _find_attachable_issue(session, account, repository, proposal)
+            if target is not None:
+                target.corrected_code = proposal.corrected_code
+                target.original_content = original_content
+                if proposal.suggested_fix:
+                    target.suggested_fix = proposal.suggested_fix
+                if proposal.description:
+                    target.description = proposal.description
+                created.append(target)
+                continue
+        fingerprint = hashlib.sha256(
+            f"{category_prefix}:{repository.id}:{proposal.file_path}:{proposal.title}".encode("utf-8")
+        ).hexdigest()
+        existing = await session.scalar(
+            select(Issue).where(
+                Issue.project_id == project.id,
+                Issue.github_account_id == account.id,
+                Issue.fingerprint == fingerprint,
+            )
+        )
+        if existing is not None:
+            created.append(existing)
+            continue
+        issue = Issue(
+            project_id=project.id,
+            repository_id=repository.id,
+            github_account_id=account.id,
+            analysis_run_id=None,
+            title=proposal.title,
+            description=proposal.description,
+            severity=proposal.severity,
+            status="open",
+            category=f"{category_prefix}:{proposal.category}"[:100],
+            file_path=proposal.file_path,
+            line_number=proposal.line_number,
+            suggested_fix=proposal.suggested_fix,
+            corrected_code=proposal.corrected_code,
+            original_content=original_content,
+            fingerprint=fingerprint,
+        )
+        session.add(issue)
+        created.append(issue)
+    await session.commit()
+    for issue in created:
+        await session.refresh(issue)
+    return created, skipped_fragments, skipped_secrets
+
+
+async def _find_attachable_issue(
+    session: AsyncSession,
+    account: GitHubAccount,
+    repository: Repository,
+    proposal,
+) -> Issue | None:
+    """Match an AI proposal to an existing open issue so applying it resolves that issue."""
+    base = select(Issue).where(
+        Issue.repository_id == repository.id,
+        Issue.github_account_id == account.id,
+        Issue.file_path == proposal.file_path,
+        Issue.status == "open",
+    )
+    if proposal.line_number:
+        exact = await session.scalar(
+            base.where(Issue.line_number == proposal.line_number).order_by(Issue.created_at.asc()).limit(1)
+        )
+        if exact is not None:
+            return exact
+    candidates = list((await session.scalars(base.order_by(Issue.created_at.asc()))).all())
+    if not candidates:
+        return None
+    title = (proposal.title or "").strip().lower()
+    if title:
+        for candidate in candidates:
+            candidate_title = (candidate.title or "").strip().lower()
+            if candidate_title and (candidate_title in title or title in candidate_title):
+                return candidate
+    return candidates[0]
+
+
+def _compose_summary(summary: str, skipped_fragments: int, skipped_secrets: int = 0) -> str:
+    notes: list[str] = []
+    if skipped_fragments:
+        notes.append(
+            f"{skipped_fragments} suggested change(s) were withheld because the AI returned an "
+            "incomplete file fragment instead of the full file."
+        )
+    if skipped_secrets:
+        notes.append(
+            f"{skipped_secrets} suggested change(s) were withheld because they touched a secret or "
+            "credential-bearing file. Secret files are never sent for AI edits or pushed."
+        )
+    if not notes:
+        return summary
+    return f"{summary} {' '.join(notes)}"
+
+
+@router.post("/repositories/{repository_id}/health-suggestions", response_model=SuggestionListResponse)
+async def generate_health_suggestions(
+    repository_id: UUID,
+    payload: HealthSuggestionRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+) -> SuggestionListResponse:
+    account = await get_authenticated_account(request, session)
+    repository = await _get_owned_repository(repository_id, session, account)
+    project = await _get_owned_project(repository.project_id, session, account)
+    issues = list(
+        (
+            await session.scalars(
+                select(Issue).where(
+                    Issue.repository_id == repository.id,
+                    Issue.github_account_id == account.id,
+                )
+            )
+        ).all()
+    )
+    _, breakdown = calculate_code_health(issues)
+    open_titles = [
+        redact_secrets(issue.title)
+        for issue in issues
+        if issue.status.lower() not in {"resolved", "rejected", "applied", "closed"}
+    ]
+    top_problems = open_titles[:5]
+    try:
+        safe_files, source_by_path = await _fetch_analyzable_files(request, repository)
+    except GitHubAppError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    if not safe_files:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No analyzable source files were found for this repository.",
+        )
+    try:
+        result = await propose_health_improvements(
+            repository.full_name,
+            repository.language,
+            breakdown,
+            top_problems,
+            safe_files[:20],
+        )
+    except AIProviderError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    created, skipped_fragments, skipped_secrets = await _persist_proposals(
+        session,
+        account,
+        project,
+        repository,
+        result.issues[: payload.max_suggestions],
+        source_by_path,
+        "health-improvement",
+        attach_to_existing=True,
+    )
+    return SuggestionListResponse(
+        repository_id=repository.id,
+        summary=_compose_summary(result.summary, skipped_fragments, skipped_secrets),
+        suggestions=created,
+    )
+
+
+@router.post("/repositories/{repository_id}/change-proposals", response_model=SuggestionListResponse)
+async def generate_change_proposals(
+    repository_id: UUID,
+    payload: ChangeProposalRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+) -> SuggestionListResponse:
+    account = await get_authenticated_account(request, session)
+    repository = await _get_owned_repository(repository_id, session, account)
+    project = await _get_owned_project(repository.project_id, session, account)
+    try:
+        safe_files, source_by_path = await _fetch_analyzable_files(request, repository)
+    except GitHubAppError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    if not safe_files:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No analyzable source files were found for this repository.",
+        )
+    try:
+        result = await propose_repository_change(
+            repository.full_name,
+            repository.language,
+            payload.instruction,
+            safe_files[:20],
+        )
+    except AIProviderError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    created, skipped_fragments, skipped_secrets = await _persist_proposals(
+        session,
+        account,
+        project,
+        repository,
+        result.issues,
+        source_by_path,
+        "requested-change",
+    )
+    return SuggestionListResponse(
+        repository_id=repository.id,
+        summary=_compose_summary(result.summary, skipped_fragments, skipped_secrets),
+        suggestions=created,
+    )

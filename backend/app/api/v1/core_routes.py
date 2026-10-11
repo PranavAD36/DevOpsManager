@@ -10,6 +10,7 @@ from app.integrations.github import GitHubClient, GitHubIntegrationError, parse_
 from app.integrations.github_app import GitHubAppError, GitHubAppService
 from app.models.core import AnalysisRun, Issue, Project, Repository, GitHubAccount
 from app.services.repository_analysis import run_repository_analysis
+from app.services.patch_safety import is_probable_fragment
 from app.services.auth_service import get_authenticated_account, verify_resource_ownership
 from app.api.v1.github_routes import _get_access_token
 from app.schemas.core import (
@@ -425,6 +426,15 @@ async def apply_suggestion(suggestion_id: UUID, request: Request, payload: dict[
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This suggestion has been rejected")
     if not issue.file_path or not issue.corrected_code or not issue.repository_id:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Suggestion does not contain a valid code change")
+    if is_probable_fragment(issue.original_content, issue.corrected_code):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "The proposed code looks like an incomplete fragment of the file, so it was not pushed. "
+                "Pushing it would overwrite the current file with partial content. Re-run the analysis or "
+                "edit the suggested code so it contains the complete file."
+            ),
+        )
     repository = await get_repository_or_404(issue.repository_id, session, github_account)
     default_message = f"fix: {issue.title} ({issue.file_path}) [{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-%f')}]"
     message = (payload.get("commit_message") or default_message).strip()

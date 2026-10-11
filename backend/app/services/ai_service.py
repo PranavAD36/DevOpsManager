@@ -119,6 +119,83 @@ async def analyze_repository_content(
     return _parse_analysis_response(content)
 
 
+async def _request_analysis_result(prompt: str, provider: str | None) -> RepositoryAnalysisResult:
+    selected_provider = (provider or settings.ai_provider).lower()
+    if selected_provider == "openrouter":
+        if not settings.openrouter_api_key:
+            raise AIProviderError("OPENROUTER_API_KEY is not configured")
+        content = await _call_openrouter(prompt)
+    elif selected_provider == "gemini":
+        if not settings.gemini_api_key:
+            raise AIProviderError("Gemini API key is not configured")
+        content = await _call_gemini(prompt)
+    else:
+        raise AIProviderError(f"Unsupported AI provider: {selected_provider}")
+    return _parse_analysis_response(content)
+
+
+def _files_to_text(files: list[object]) -> str:
+    return "\n\n".join(f"FILE: {item.path}\n{item.content}" for item in files)
+
+
+async def propose_repository_change(
+    repository_name: str,
+    language: str | None,
+    instruction: str,
+    files: list[object],
+    provider: str | None = None,
+) -> RepositoryAnalysisResult:
+    prompt = (
+        "You are implementing a requested code change in the supplied repository files. "
+        "Apply the user instruction precisely and with the smallest safe change; do not make unrelated edits. "
+        "Return only valid JSON matching {summary, issues: [{title, description, severity, category, "
+        "file_path, line_number, suggested_fix, corrected_code}]}. "
+        "Create exactly one entry per file that must change. "
+        "corrected_code MUST contain the complete new content of that file (never a diff, patch, or partial "
+        "snippet), preserving all unrelated code exactly. "
+        "file_path MUST exactly match one of the supplied FILE paths; never invent files. "
+        "Severity must be low, medium, high, or critical. "
+        "If the instruction cannot be satisfied with the supplied files, return an empty issues list and "
+        "explain the reason in summary. "
+        "CRITICAL: corrected_code replaces the whole file. Never return only the changed lines, a diff, or an "
+        "excerpt. If you are not certain you can reproduce the ENTIRE file with the change applied, return an "
+        "empty issues list instead of a partial file.\n\n"
+        f"Repository: {repository_name}\nLanguage: {language or 'unknown'}\n"
+        f"Instruction: {instruction}\n\n"
+        f"{_files_to_text(files)}"
+    )
+    return await _request_analysis_result(prompt, provider)
+
+
+async def propose_health_improvements(
+    repository_name: str,
+    language: str | None,
+    breakdown: dict[str, int] | None,
+    top_problems: list[str],
+    files: list[object],
+    provider: str | None = None,
+) -> RepositoryAnalysisResult:
+    prompt = (
+        "You are improving the engineering health of this repository. "
+        "Using the supplied code-health breakdown, top problems, and source files, propose the most "
+        "impactful concrete code changes that will raise the health score. "
+        "Return only valid JSON matching {summary, issues: [{title, description, severity, category, "
+        "file_path, line_number, suggested_fix, corrected_code}]}. "
+        "corrected_code MUST contain the complete corrected content of the affected file, preserving "
+        "all unrelated code exactly; never return a partial snippet. "
+        "Only reference files that appear in the supplied FILE list. "
+        "Prioritise real defects and maintainability problems over stylistic preferences. "
+        "If no change is warranted, return an empty issues list. "
+        "CRITICAL: corrected_code replaces the whole file. Never return only the changed lines, a diff, or an "
+        "excerpt; reproduce the ENTIRE file with the change applied, or omit that issue.\n\n"
+        f"Repository: {repository_name}\nLanguage: {language or 'unknown'}\n"
+        f"Code health breakdown: {json.dumps(breakdown or {}, sort_keys=True)}\n"
+        f"Top problems: {', '.join(top_problems) or 'none recorded'}\n\n"
+        f"{_files_to_text(files)}"
+    )
+    return await _request_analysis_result(prompt, provider)
+
+
 async def analyze_pull_request_diff(
     repository_name: str,
     diff_content: str,
@@ -221,11 +298,14 @@ async def summarize_engineering_metrics(metrics: dict[str, int | str | None]) ->
         summary = EngineeringExecutiveSummary.model_validate(json.loads(cleaned)).summary
     except (json.JSONDecodeError, ValueError) as exc:
         raise AIProviderError("AI provider returned an invalid engineering summary") from exc
-    supplied_numbers = {
-        str(value)
-        for value in metrics.values()
-        if isinstance(value, int)
-    }
+    supplied_numbers: set[str] = set()
+    for value in metrics.values():
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            supplied_numbers.add(str(value))
+        elif isinstance(value, str):
+            supplied_numbers.update(re.findall(r"\d+(?:\.\d+)?", value))
     mentioned_numbers = re.findall(r"(?<![A-Za-z])\d+(?:\.\d+)?%?", summary)
     if any(number.rstrip("%") not in supplied_numbers for number in mentioned_numbers):
         raise AIProviderError("AI provider included an unsupported numeric value in the engineering summary")

@@ -51,6 +51,15 @@ export default function ProjectDetailsPage() {
   const [batchMode, setBatchMode] = useState<"approve" | "reject">("approve");
   const [batchTargets, setBatchTargets] = useState<Issue[]>([]);
   const [batchResults, setBatchResults] = useState<{ id: string; title: string; ok: boolean; message: string }[] | null>(null);
+  const [changeRepositoryId, setChangeRepositoryId] = useState("");
+  const [changeInstruction, setChangeInstruction] = useState("");
+  const [changeLoading, setChangeLoading] = useState(false);
+  const [changeProposals, setChangeProposals] = useState<Issue[]>([]);
+  const [changeSummary, setChangeSummary] = useState<string | null>(null);
+  const [changeError, setChangeError] = useState<string | null>(null);
+  const [changePushed, setChangePushed] = useState<string[]>([]);
+  const [changeRejected, setChangeRejected] = useState<string[]>([]);
+  const [changePushingId, setChangePushingId] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -77,6 +86,56 @@ export default function ProjectDetailsPage() {
   useEffect(() => {
     if (id) void load();
   }, [id]);
+
+  async function requestChange() {
+    if (!changeRepositoryId || changeInstruction.trim().length < 3) return;
+    setChangeLoading(true);
+    setChangeError(null);
+    setChangeSummary(null);
+    setChangeProposals([]);
+    setChangePushed([]);
+    setChangeRejected([]);
+    try {
+      const result = await api.requestRepositoryChange(changeRepositoryId, changeInstruction.trim());
+      setChangeProposals(result.suggestions);
+      setChangeSummary(result.summary);
+      if (result.suggestions.length) {
+        setIssues((current) => {
+          const existing = new Set(current.map((item) => item.id));
+          return [...result.suggestions.filter((item) => !existing.has(item.id)), ...current];
+        });
+      }
+    } catch (requestError) {
+      setChangeError(requestError instanceof Error ? requestError.message : "Unable to generate the change.");
+    } finally {
+      setChangeLoading(false);
+    }
+  }
+
+  async function pushChange(issue: Issue) {
+    setChangePushingId(issue.id);
+    setChangeError(null);
+    try {
+      const applied = await api.applySuggestion(issue.id);
+      setChangePushed((current) => [...current, issue.id]);
+      setIssues((current) => current.map((item) => (item.id === applied.id ? applied : item)));
+    } catch (requestError) {
+      setChangeError(requestError instanceof Error ? requestError.message : "Unable to push the change.");
+    } finally {
+      setChangePushingId(null);
+    }
+  }
+
+  async function rejectChange(issue: Issue) {
+    setChangeError(null);
+    try {
+      const rejected = await api.rejectIssueFix(issue.id);
+      setChangeRejected((current) => [...current, issue.id]);
+      setIssues((current) => current.map((item) => (item.id === rejected.id ? rejected : item)));
+    } catch (requestError) {
+      setChangeError(requestError instanceof Error ? requestError.message : "Unable to reject the change.");
+    }
+  }
 
   async function connectRepository(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -378,12 +437,12 @@ export default function ProjectDetailsPage() {
           <span className="text-slate-300">{project?.name ?? "..."}</span>
         </div>
 
-        {error && (
+        {error && !project && (
           <div className="rounded-xl border border-rose-900/50 bg-rose-950/20 px-4 py-3 text-sm text-rose-300 mb-5" role="alert">
             {error}
           </div>
         )}
-        {message && (
+        {message && !project && (
           <div className="rounded-xl border border-emerald-900/50 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-300 mb-5" role="status">
             {message}
           </div>
@@ -478,6 +537,7 @@ export default function ProjectDetailsPage() {
             {/* ── Chat section ─────────────────────── */}
             {activeSection === "chat" && (
               <div className="glass-panel p-6">
+                <PageAlert error={error} message={message} />
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-lg font-semibold text-white">Repository Chat</h3>
                   <div className="flex items-center gap-4">
@@ -564,10 +624,105 @@ export default function ProjectDetailsPage() {
               </div>
             )}
 
+            {/* ── Request a code change ─────────────── */}
+            {activeSection === "chat" && (
+              <div className="glass-panel p-6 mt-6">
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Request a Code Change</h3>
+                    <p className="mt-1 text-xs text-slate-500">Describe a change in plain English. The AI proposes an edit you can review, then approve and push.</p>
+                  </div>
+                  <select
+                    className="input w-64 !py-2 !text-sm bg-[#101827] border-[#1e2d4a]"
+                    value={changeRepositoryId}
+                    onChange={(e) => setChangeRepositoryId(e.target.value)}
+                  >
+                    <option value="">Select a repository...</option>
+                    {repositories.map((r) => <option key={r.id} value={r.id}>{r.full_name}</option>)}
+                  </select>
+                </div>
+
+                <div className="flex gap-3">
+                  <input
+                    className="input flex-1 bg-[#152035]"
+                    placeholder="e.g. Add a /health endpoint and validate the request body"
+                    value={changeInstruction}
+                    onChange={(e) => setChangeInstruction(e.target.value)}
+                    disabled={!changeRepositoryId || changeLoading}
+                  />
+                  <button
+                    className="btn-primary"
+                    disabled={!changeRepositoryId || changeInstruction.trim().length < 3 || changeLoading}
+                    onClick={() => void requestChange()}
+                  >
+                    {changeLoading ? "Generating..." : "Generate Change"}
+                  </button>
+                </div>
+
+                {changeError && <div className="mt-4 rounded-xl border border-rose-900/50 bg-rose-950/25 px-4 py-3 text-sm text-rose-300" role="alert">{changeError}</div>}
+                {changeSummary && <p className="mt-4 rounded-xl border border-cyan-900/40 bg-cyan-950/20 px-4 py-3 text-xs leading-relaxed text-cyan-100">{changeSummary}</p>}
+
+                {changeProposals.length > 0 && (
+                  <div className="mt-4 space-y-3">
+                    {changeProposals.map((issue) => {
+                      const pushed = changePushed.includes(issue.id);
+                      const rejected = changeRejected.includes(issue.id);
+                      return (
+                        <div key={issue.id} className="rounded-xl border border-[#1e2d4a] bg-[#0b1120]/70 p-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-white">{issue.title}</p>
+                              <p className="mt-1 text-[11px] text-slate-500">{issue.file_path}{issue.line_number ? `:${issue.line_number}` : ""}</p>
+                            </div>
+                            <span className={`badge ${issue.severity === "critical" || issue.severity === "high" ? "badge-rose" : "badge-cyan"}`}>{issue.severity}</span>
+                          </div>
+                          {issue.suggested_fix && <p className="mt-2 text-xs text-slate-400">{issue.suggested_fix}</p>}
+                          {issue.corrected_code && (
+                            <DiffViewer
+                              filePath={issue.file_path}
+                              lineNumber={issue.line_number}
+                              description={issue.description}
+                              correctedCode={issue.corrected_code}
+                              onSaveFix={async (updatedCode) => {
+                                const updated = await api.updateIssueFix(issue.id, { corrected_code: updatedCode });
+                                setChangeProposals((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+                              }}
+                            />
+                          )}
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            {pushed ? (
+                              <span className="badge badge-emerald">Pushed to GitHub</span>
+                            ) : rejected ? (
+                              <span className="badge badge-slate">Rejected</span>
+                            ) : (
+                              <>
+                                <button className="btn-accent !px-3 !py-1.5 !text-xs" disabled={changePushingId === issue.id} onClick={() => void pushChange(issue)}>
+                                  {changePushingId === issue.id ? "Pushing..." : "Approve & Push"}
+                                </button>
+                                <button className="btn-danger !px-3 !py-1.5 !text-xs" onClick={() => void rejectChange(issue)}>
+                                  Reject
+                                </button>
+                              </>
+                            )}
+                            {issue.commit_url && <a className="text-[11px] text-cyan-300 hover:text-cyan-200" href={issue.commit_url} target="_blank" rel="noreferrer">View commit</a>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {!changeProposals.length && !changeLoading && (
+                  <p className="mt-4 text-xs text-slate-500">No proposed change yet. Select a repository and describe what you want changed.</p>
+                )}
+              </div>
+            )}
+
             {/* ── Repositories section ─────────────────────── */}
             {activeSection === "repositories" && (
               <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_280px]">
                 <div className="space-y-6">
+                  <PageAlert error={error} message={message} />
                   {/* Repository list */}
                   {repositories.length === 0 ? (
                     <div className="glass-panel p-10 text-center">
@@ -705,6 +860,7 @@ export default function ProjectDetailsPage() {
             {/* ── AI Analysis section ──────────────────────── */}
             {activeSection === "analysis" && (
               <div className="space-y-8">
+                <PageAlert error={error} message={message} />
                 {/* Analysis progress */}
                 {analysisProgress && (
                   <div className="glass-panel p-6">
@@ -1161,6 +1317,22 @@ export default function ProjectDetailsPage() {
 }
 
 /* ── Settings Component ──────────────────────────────────── */
+
+function PageAlert({ error, message }: { error: string | null; message: string | null }) {
+  if (!error && !message) return null;
+  return (
+    <div
+      className={
+        error
+          ? "rounded-xl border border-rose-900/50 bg-rose-950/20 px-4 py-3 text-sm text-rose-300"
+          : "rounded-xl border border-emerald-900/50 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-300"
+      }
+      role={error ? "alert" : "status"}
+    >
+      {error || message}
+    </div>
+  );
+}
 
 function ProjectSettings({ project, onUpdate }: { project: Project, onUpdate: (p: Project) => void }) {
   const [rules, setRules] = useState(project.custom_rules || "");

@@ -133,6 +133,31 @@ export type EngineeringPoint = {
   ci_failures: number;
 };
 
+export type EngineeringRepositoryActivityPoint = {
+  date: string;
+  issues_opened: number;
+  issues_resolved: number;
+  analyses: number;
+  ci_runs: number;
+};
+
+export type EngineeringRepositoryActivity = {
+  repository_id: string;
+  full_name: string;
+  issues_opened: number;
+  issues_resolved: number;
+  analyses: number;
+  ci_runs: number;
+  total_activity: number;
+  daily: EngineeringRepositoryActivityPoint[];
+};
+
+export type SuggestionResult = {
+  repository_id: string;
+  summary: string;
+  suggestions: Issue[];
+};
+
 export type EngineeringTrends = {
   start_date: string;
   end_date: string;
@@ -140,6 +165,7 @@ export type EngineeringTrends = {
   available_metrics: string[];
   unavailable_metrics: string[];
   series: EngineeringPoint[];
+  repository_activity: EngineeringRepositoryActivity[];
   executive_summary?: string | null;
   security_findings: number;
   code_health: number | null;
@@ -373,4 +399,14 @@ export const api = {
   logout: () => request<void>('/v1/github/logout', { method: 'POST' }),
   indexRepository: (repositoryId: string) => request<{ message: string }>(`/v1/rag/${repositoryId}/index`, { method: 'POST' }),
   chatWithRepo: (repositoryId: string, query: string) => request<{ answer: string }>(`/v1/rag/${repositoryId}/chat`, { method: 'POST', body: JSON.stringify({ query }) }),
+  getHealthSuggestions: (repositoryId: string, maxSuggestions = 5) =>
+    request<SuggestionResult>(`/v1/repositories/${repositoryId}/health-suggestions`, {
+      method: 'POST',
+      body: JSON.stringify({ max_suggestions: maxSuggestions }),
+    }),
+  requestRepositoryChange: (repositoryId: string, instruction: string) =>
+    request<SuggestionResult>(`/v1/repositories/${repositoryId}/change-proposals`, {
+      method: 'POST',
+      body: JSON.stringify({ instruction }),
+    }),
 };

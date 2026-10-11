@@ -9,9 +9,15 @@ from sqlalchemy import select
 
 from app.api.v1.engineering_routes import github_app_service
 from app.api.v1 import engineering_routes
-from app.integrations.github_app import GitHubWorkflowRun
+from app.integrations.github_app import GitHubRepositoryFile, GitHubWorkflowRun
 from app.models.core import GitHubAccount
-from app.services.ai_service import SecurityReviewFinding, SecurityReviewResult
+from app.services.ai_service import (
+    AIProviderError,
+    AnalyzedIssue,
+    RepositoryAnalysisResult,
+    SecurityReviewFinding,
+    SecurityReviewResult,
+)
 from app.main import app
 
 
@@ -253,6 +259,260 @@ def test_custom_report_includes_ai_summary_from_real_metrics() -> None:
     assert response.json()["executive_summary"] == "Recorded engineering activity for this date range."
     assert response.json()["start_date"] == "2026-10-01"
     assert response.json()["end_date"] == "2026-10-08"
+
+
+def test_custom_report_survives_ai_summary_failure() -> None:
+    with patch.object(
+        engineering_routes,
+        "summarize_engineering_metrics",
+        new=AsyncMock(
+            side_effect=AIProviderError(
+                "AI provider included an unsupported numeric value in the engineering summary"
+            )
+        ),
+    ), TestClient(app) as client:
+        project_id, repository_id = _create_project_and_repository(client)
+        response = client.get(
+            f"/v1/projects/{project_id}/reports?period=custom&start_date=2026-10-01&end_date=2026-10-08&repository_id={repository_id}",
+            headers=TEST_HEADERS,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["executive_summary"] is None
+    assert response.json()["start_date"] == "2026-10-01"
+    assert response.json()["end_date"] == "2026-10-08"
+
+
+def test_trends_include_per_repository_activity() -> None:
+    with TestClient(app) as client:
+        project_id, repository_id = _create_project_and_repository(client)
+        created = client.post(
+            f"/v1/projects/{project_id}/issues",
+            json={"repository_id": repository_id, "title": "Null dereference", "severity": "high"},
+            headers=TEST_HEADERS,
+        )
+        assert created.status_code == 201
+        trends = client.get(
+            f"/v1/projects/{project_id}/trends?days=30",
+            headers=TEST_HEADERS,
+        )
+
+    assert trends.status_code == 200
+    activity = trends.json()["repository_activity"]
+    assert len(activity) == 1
+    assert activity[0]["repository_id"] == repository_id
+    assert activity[0]["full_name"] == "octocat/hello-world"
+    assert activity[0]["issues_opened"] == 1
+    assert activity[0]["total_activity"] >= 1
+    assert activity[0]["daily"]
+
+
+def _sample_proposal(summary: str, title: str, corrected_code: str) -> RepositoryAnalysisResult:
+    return RepositoryAnalysisResult(
+        summary=summary,
+        issues=[
+            AnalyzedIssue(
+                title=title,
+                description="Requested engineering change.",
+                severity="medium",
+                category="Maintainability",
+                file_path="app/main.py",
+                suggested_fix="Apply the proposed change.",
+                corrected_code=corrected_code,
+            )
+        ],
+    )
+
+
+def test_health_suggestions_persist_reviewable_fixes() -> None:
+    sample = GitHubRepositoryFile(path="app/main.py", content="from fastapi import FastAPI\napp = FastAPI()\n")
+    proposal = _sample_proposal(
+        "Improve reliability.",
+        "Add explicit health endpoint",
+        "from fastapi import FastAPI\napp = FastAPI()\n\n@app.get('/health')\ndef health():\n    return {'status': 'ok'}\n",
+    )
+    with patch.object(
+        engineering_routes,
+        "_fetch_analyzable_files",
+        new=AsyncMock(return_value=([sample], {"app/main.py": sample.content})),
+    ), patch.object(
+        engineering_routes,
+        "propose_health_improvements",
+        new=AsyncMock(return_value=proposal),
+    ), TestClient(app) as client:
+        project_id, repository_id = _create_project_and_repository(client)
+        response = client.post(
+            f"/v1/repositories/{repository_id}/health-suggestions",
+            json={"max_suggestions": 5},
+            headers=TEST_HEADERS,
+        )
+        issues = client.get(f"/v1/projects/{project_id}/issues", headers=TEST_HEADERS)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summary"] == "Improve reliability."
+    assert len(body["suggestions"]) == 1
+    suggestion = body["suggestions"][0]
+    assert suggestion["file_path"] == "app/main.py"
+    assert suggestion["corrected_code"] == proposal.issues[0].corrected_code
+    assert suggestion["original_content"] == sample.content
+    assert suggestion["category"].startswith("health-improvement")
+    assert issues.status_code == 200
+    assert any(item["id"] == suggestion["id"] for item in issues.json())
+
+
+def test_change_proposals_persist_requested_change() -> None:
+    sample = GitHubRepositoryFile(path="app/main.py", content="from fastapi import FastAPI\napp = FastAPI()\n")
+    proposal = _sample_proposal(
+        "Add a version endpoint.",
+        "Add /version endpoint",
+        "from fastapi import FastAPI\napp = FastAPI()\n\n@app.get('/version')\ndef version():\n    return {'version': '1'}\n",
+    )
+    with patch.object(
+        engineering_routes,
+        "_fetch_analyzable_files",
+        new=AsyncMock(return_value=([sample], {"app/main.py": sample.content})),
+    ), patch.object(
+        engineering_routes,
+        "propose_repository_change",
+        new=AsyncMock(return_value=proposal),
+    ), TestClient(app) as client:
+        project_id, repository_id = _create_project_and_repository(client)
+        response = client.post(
+            f"/v1/repositories/{repository_id}/change-proposals",
+            json={"instruction": "Add a version endpoint"},
+            headers=TEST_HEADERS,
+        )
+        issues = client.get(f"/v1/projects/{project_id}/issues", headers=TEST_HEADERS)
+
+    assert response.status_code == 200
+    body = response.json()
+    suggestion = body["suggestions"][0]
+    assert suggestion["category"].startswith("requested-change")
+    assert suggestion["file_path"] == "app/main.py"
+    assert suggestion["corrected_code"] == proposal.issues[0].corrected_code
+    assert any(item["id"] == suggestion["id"] for item in issues.json())
+
+
+def test_change_proposals_withhold_incomplete_ai_fragments() -> None:
+    original = (
+        "#include <iostream>\n"
+        "using namespace std;\n"
+        "\n"
+        "int main() {\n"
+        '    cout << "Hello, world!" << endl;\n'
+        "    return 0;\n"
+        "}\n"
+    )
+    sample = GitHubRepositoryFile(path="test.cpp", content=original)
+    fragment = RepositoryAnalysisResult(
+        summary="Change the greeting.",
+        issues=[
+            AnalyzedIssue(
+                title="Change greeting",
+                description="Update the output line.",
+                severity="low",
+                category="requested-change",
+                file_path="test.cpp",
+                suggested_fix="Edit the cout line.",
+                corrected_code='cout << "Hi" << endl',
+            )
+        ],
+    )
+    with patch.object(
+        engineering_routes,
+        "_fetch_analyzable_files",
+        new=AsyncMock(return_value=([sample], {"test.cpp": sample.content})),
+    ), patch.object(
+        engineering_routes,
+        "propose_repository_change",
+        new=AsyncMock(return_value=fragment),
+    ), TestClient(app) as client:
+        project_id, repository_id = _create_project_and_repository(client)
+        response = client.post(
+            f"/v1/repositories/{repository_id}/change-proposals",
+            json={"instruction": "Change the greeting"},
+            headers=TEST_HEADERS,
+        )
+        issues = client.get(f"/v1/projects/{project_id}/issues", headers=TEST_HEADERS)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["suggestions"] == []
+    assert "withheld" in body["summary"]
+    assert all(item["file_path"] != "test.cpp" for item in issues.json())
+
+
+def test_health_suggestions_attach_to_existing_issue_and_raise_score() -> None:
+    original = (
+        "from fastapi import FastAPI\n"
+        "app = FastAPI()\n\n"
+        "@app.get('/')\n"
+        "def index():\n"
+        "    return {'status': 'ok'}\n"
+    )
+    sample = GitHubRepositoryFile(path="app/main.py", content=original)
+    proposal = RepositoryAnalysisResult(
+        summary="Add an explicit health endpoint.",
+        issues=[
+            AnalyzedIssue(
+                title="Add health endpoint",
+                description="Add a dedicated health route.",
+                severity="medium",
+                category="Maintainability",
+                file_path="app/main.py",
+                suggested_fix="Add a /health route.",
+                corrected_code=original + "\n@app.get('/health')\ndef health():\n    return {'status': 'ok'}\n",
+            )
+        ],
+    )
+    with patch.object(
+        engineering_routes,
+        "_fetch_analyzable_files",
+        new=AsyncMock(return_value=([sample], {"app/main.py": original})),
+    ), patch.object(
+        engineering_routes,
+        "propose_health_improvements",
+        new=AsyncMock(return_value=proposal),
+    ), TestClient(app) as client:
+        project_id, repository_id = _create_project_and_repository(client)
+        run = client.post(
+            f"/v1/projects/{project_id}/analysis-runs",
+            json={"repository_id": repository_id},
+            headers=TEST_HEADERS,
+        ).json()
+        client.patch(
+            f"/v1/analysis-runs/{run['id']}",
+            json={"status": "completed", "completed_at": "2026-10-08T00:00:00Z"},
+            headers=TEST_HEADERS,
+        )
+        issue = client.post(
+            f"/v1/projects/{project_id}/issues",
+            json={
+                "repository_id": repository_id,
+                "analysis_run_id": run["id"],
+                "title": "SQL injection",
+                "category": "security",
+                "severity": "critical",
+                "file_path": "app/main.py",
+            },
+            headers=TEST_HEADERS,
+        ).json()
+
+        before = client.get(f"/v1/repositories/{repository_id}/code-health", headers=TEST_HEADERS).json()
+        suggestions = client.post(
+            f"/v1/repositories/{repository_id}/health-suggestions",
+            json={"max_suggestions": 5},
+            headers=TEST_HEADERS,
+        ).json()
+        issue_list = client.get(f"/v1/projects/{project_id}/issues", headers=TEST_HEADERS).json()
+        client.patch(f"/v1/issues/{issue['id']}", json={"status": "applied"}, headers=TEST_HEADERS)
+        after = client.get(f"/v1/repositories/{repository_id}/code-health", headers=TEST_HEADERS).json()
+
+    assert len(suggestions["suggestions"]) == 1
+    assert suggestions["suggestions"][0]["id"] == issue["id"]
+    assert len(issue_list) == 1
+    assert after["score"] > before["score"]
 
 
 def test_pull_request_security_review_persists_safe_findings() -> None:

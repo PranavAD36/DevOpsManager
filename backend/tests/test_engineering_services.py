@@ -7,6 +7,7 @@ import pytest
 from app.services import ai_service
 from app.services.ai_service import AIProviderError, IncidentAnalysisResult
 from app.services.code_health import calculate_code_health
+from app.services.patch_safety import is_probable_fragment
 from app.services.secret_detection import (
     detect_secrets,
     redact_secrets,
@@ -205,3 +206,42 @@ def test_security_review_rejects_evidence_not_in_diff() -> None:
     )
     with pytest.raises(AIProviderError, match="not present"):
         ai_service._parse_security_review_response(output, "+++ b/app.py\n+actual()\n")
+
+
+def test_patch_safety_flags_truncated_ai_replacements() -> None:
+    original = (
+        "#include <iostream>\n"
+        "using namespace std;\n"
+        "\n"
+        "int main() {\n"
+        '    cout << "Hello, world!" << endl;\n'
+        "    return 0;\n"
+        "}\n"
+    )
+
+    # The model returned only the edited line instead of the whole file.
+    assert is_probable_fragment(original, 'cout << "Hello, world!" << endl') is True
+    # A genuine whole-file replacement keeps the structural anchors.
+    assert is_probable_fragment(original, original.replace("Hello, world!", "Hi")) is False
+
+
+def test_patch_safety_ignores_small_files_and_missing_original() -> None:
+    assert is_probable_fragment(None, "print('hello')") is False
+    assert is_probable_fragment("print('hello')", "print('hi')") is False
+    assert is_probable_fragment("", "print('hi')") is False
+
+
+def test_code_health_ignores_requested_change_and_health_improvement_records() -> None:
+    defects = [
+        SimpleNamespace(category="security", title="SQL injection", description="", severity="critical", status="open"),
+    ]
+    workflow_tasks = [
+        SimpleNamespace(category="requested-change:Maintainability", title="Add endpoint", description="", severity="critical", status="open"),
+        SimpleNamespace(category="health-improvement:Testing", title="Add tests", description="", severity="critical", status="open"),
+    ]
+
+    defects_only_score, defects_only_breakdown = calculate_code_health(defects)
+    combined_score, combined_breakdown = calculate_code_health(defects + workflow_tasks)
+
+    assert combined_score == defects_only_score
+    assert combined_breakdown == defects_only_breakdown

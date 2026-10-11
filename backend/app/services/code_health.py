@@ -11,6 +11,9 @@ HEALTH_CATEGORIES = (
     "Documentation",
 )
 _SEVERITY_PENALTIES = {"critical": 20, "high": 10, "medium": 5, "low": 2}
+# Workflow/task records created by the change and health-improvement flows describe
+# proposed work, not defects in the code, so they must never lower the health score.
+_NON_DEFECT_CATEGORY_PREFIXES = ("requested-change", "health-improvement")
 _CATEGORY_TERMS = {
     "Maintainability": ("maintain", "technical debt", "refactor"),
     "Testing": ("test", "coverage"),
@@ -35,6 +38,9 @@ def calculate_code_health(issues: Iterable[object]) -> tuple[int, dict[str, int]
     penalties: dict[str, int] = defaultdict(int)
     for issue in issues:
         if str(getattr(issue, "status", "open")).lower() in {"resolved", "rejected", "applied", "closed"}:
+            continue
+        category = str(getattr(issue, "category", "") or "").lower()
+        if category.startswith(_NON_DEFECT_CATEGORY_PREFIXES):
             continue
         severity = str(getattr(issue, "severity", "medium")).lower()
         penalties[_category_for(issue)] += _SEVERITY_PENALTIES.get(severity, _SEVERITY_PENALTIES["medium"])
