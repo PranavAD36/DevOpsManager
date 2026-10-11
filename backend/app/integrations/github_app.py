@@ -122,11 +122,13 @@ class GitHubAppService:
         except (KeyError, ValueError, UnicodeDecodeError) as exc: raise GitHubAppError("GitHub file content is invalid", 422) from exc
         return GitHubFileVersion(path, content, str(data["sha"]))
 
-    async def update_file(self, access_token: str, owner: str, repository: str, path: str, branch: str, content: str, sha: str, message: str) -> GitHubCommitResult:
+    async def update_file(self, access_token: str, owner: str, repository: str, path: str, branch: str, content: str, sha: str | None, message: str) -> GitHubCommitResult:
         if _is_mock_token(access_token):
             return GitHubCommitResult("mock-commit-sha", f"https://github.com/{owner}/{repository}/commit/mock-commit-sha")
         headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
-        payload = {"message": message, "content": base64.b64encode(content.encode()).decode(), "sha": sha, "branch": branch}
+        payload = {"message": message, "content": base64.b64encode(content.encode()).decode(), "branch": branch}
+        if sha:
+            payload["sha"] = sha
         async with httpx.AsyncClient(timeout=20.0, transport=self.transport) as client:
             response = await client.put(f"{self.base_url}/repos/{owner}/{repository}/contents/{quote(path, safe='/')}", json=payload, headers=headers)
         if response.status_code == 401: raise GitHubAppError("Invalid or expired GitHub access token", 401)
@@ -496,8 +498,7 @@ class GitHubAppService:
                     raise GitHubAppError(f"Failed to fetch GitHub repository tree (HTTP {tree_response.status_code}): {tree_response.text}", 502)
                 tree = tree_response.json()
 
-                files: list[GitHubRepositoryFile] = []
-                total_bytes = 0
+                candidates: list[tuple[str, int]] = []
                 for entry in tree.get("tree", []):
                     path = str(entry.get("path", ""))
                     size = int(entry.get("size", 0) or 0)
@@ -508,9 +509,16 @@ class GitHubAppService:
                             or (include_sensitive_files and _is_sensitive_source_path(path))
                         )
                         or size > max_file_bytes
-                        or len(files) >= max_files
-                        or total_bytes + size > max_total_bytes
                     ):
+                        continue
+                    candidates.append((path, size))
+                # Fetch sensitive files (.env, private keys) first so the size caps can never drop them.
+                candidates.sort(key=lambda item: 0 if _is_sensitive_source_path(item[0]) else 1)
+
+                files: list[GitHubRepositoryFile] = []
+                total_bytes = 0
+                for path, size in candidates:
+                    if len(files) >= max_files or total_bytes + size > max_total_bytes:
                         continue
                     content_response = await client.get(
                         f"{self.base_url}/repos/{owner}/{repository}/contents/{quote(path, safe='/')}",

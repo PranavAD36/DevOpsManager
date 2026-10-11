@@ -33,3 +33,6 @@ frontend/.venv/
 
 # Build cache
 frontend/tsconfig.tsbuildinfo
+
+# Detected-secret notes (local only, never commit)
+backend/data/secret_notes/

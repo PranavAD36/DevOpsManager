@@ -3,7 +3,7 @@ import logging
 from types import SimpleNamespace
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,6 +50,8 @@ from app.services.secret_detection import (
     redact_secrets,
     scan_and_exclude_secret_files,
 )
+from app.services.secret_notes import write_secret_note
+from app.services.secret_remediation import apply_secret_remediation, plan_secret_remediation
 
 router = APIRouter(tags=["engineering intelligence"])
 github_app_service = GitHubAppService()
@@ -76,6 +78,36 @@ class SecretFindingResponse(BaseModel):
 class SecretScanResponse(BaseModel):
     repository_id: UUID
     findings: list[SecretFindingResponse]
+    note_path: str | None = None
+
+
+class SecretRemediationRequest(BaseModel):
+    apply: bool = False
+
+
+class SecretRemediationActionResponse(BaseModel):
+    file_path: str
+    action: str
+    secret_type: str
+    line_numbers: list[int]
+    removed_snippet: str
+    gitignore_entry: str | None = None
+
+
+class SecretRemediationResultResponse(BaseModel):
+    file_path: str
+    action: str
+    ok: bool
+    message: str
+    commit_sha: str | None = None
+    commit_url: str | None = None
+
+
+class SecretRemediationResponse(BaseModel):
+    repository_id: UUID
+    applied: bool
+    actions: list[SecretRemediationActionResponse]
+    results: list[SecretRemediationResultResponse]
 
 
 class WorkflowRunResponse(BaseModel):
@@ -297,6 +329,7 @@ async def scan_repository_secrets(
     except GitHubAppError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     findings: list[SecretFinding] = detect_secrets(files)
+    note_path = write_secret_note(repository.full_name, findings)
     return SecretScanResponse(
         repository_id=repository.id,
         findings=[
@@ -308,6 +341,75 @@ async def scan_repository_secrets(
                 masked_value=finding.masked_value,
             )
             for finding in findings
+        ],
+        note_path=note_path,
+    )
+
+
+@router.post("/repositories/{repository_id}/secrets/remediation", response_model=SecretRemediationResponse)
+async def remediate_repository_secrets(
+    repository_id: UUID,
+    request: Request,
+    payload: SecretRemediationRequest | None = Body(default=None),
+    session: AsyncSession = Depends(get_db_session),
+) -> SecretRemediationResponse:
+    """Preview or push cleanup for the credentials detected in a repository.
+
+    Sensitive files (.env, keys) are added to the repository .gitignore; a credential found in a
+    normal source file has the offending line removed. Nothing is pushed unless apply=true.
+    """
+    account = await get_authenticated_account(request, session)
+    repository = await _get_owned_repository(repository_id, session, account)
+    if repository.provider != "github":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported repository provider")
+    access_token = _get_access_token(request)
+    apply_changes = bool(payload.apply) if payload is not None else False
+    try:
+        if apply_changes:
+            actions, results = await apply_secret_remediation(repository, access_token)
+        else:
+            actions = await plan_secret_remediation(repository, access_token)
+            results = []
+    except GitHubAppError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    if actions:
+        write_secret_note(
+            repository.full_name,
+            [
+                SimpleNamespace(
+                    severity="critical",
+                    secret_type=action.secret_type,
+                    file_path=action.file_path,
+                    line_number=action.line_numbers[0] if action.line_numbers else 0,
+                    masked_value="************",
+                )
+                for action in actions
+            ],
+        )
+    return SecretRemediationResponse(
+        repository_id=repository.id,
+        applied=apply_changes,
+        actions=[
+            SecretRemediationActionResponse(
+                file_path=action.file_path,
+                action=action.action,
+                secret_type=action.secret_type,
+                line_numbers=action.line_numbers,
+                removed_snippet=action.removed_snippet,
+                gitignore_entry=action.gitignore_entry,
+            )
+            for action in actions
+        ],
+        results=[
+            SecretRemediationResultResponse(
+                file_path=result.file_path,
+                action=result.action,
+                ok=result.ok,
+                message=result.message,
+                commit_sha=result.commit_sha,
+                commit_url=result.commit_url,
+            )
+            for result in results
         ],
     )
 

@@ -31,6 +31,8 @@ export type Repository = {
   github_created_at: string | null;
   github_updated_at: string | null;
   pushed_at: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type AnalysisRun = {
@@ -84,6 +86,31 @@ export type SecretFinding = {
   line_number: number;
   severity: string;
   masked_value: string;
+};
+
+export type SecretRemediationAction = {
+  file_path: string;
+  action: "gitignore" | "remove_lines";
+  secret_type: string;
+  line_numbers: number[];
+  removed_snippet: string;
+  gitignore_entry: string | null;
+};
+
+export type SecretRemediationResult = {
+  file_path: string;
+  action: string;
+  ok: boolean;
+  message: string;
+  commit_sha: string | null;
+  commit_url: string | null;
+};
+
+export type SecretRemediationResponse = {
+  repository_id: string;
+  applied: boolean;
+  actions: SecretRemediationAction[];
+  results: SecretRemediationResult[];
 };
 
 export type WorkflowRun = {
@@ -305,22 +332,37 @@ export function clearAuthToken(): void {
   }
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T>(path: string, options?: RequestInit & { timeoutMs?: number }): Promise<T> {
   const token = getStoredAuthToken();
   const authHeaders: Record<string, string> = {};
   if (token) {
     authHeaders['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...authHeaders,
-      ...options?.headers,
-    },
-  });
+  const { timeoutMs, ...init } = options ?? {};
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs ?? 120000);
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      signal: controller.signal,
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders,
+        ...init.headers,
+      },
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('The request timed out. The server took too long to respond.');
+    }
+    throw new Error(`Could not reach the API at ${API_BASE_URL}. Make sure the backend is running, then try again.`);
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     if (response.status === 401) {
@@ -346,7 +388,15 @@ export const api = {
   connectRepository: (id: string, url: string) => request<Repository>(`/v1/projects/${id}/repositories/connect`, { method: 'POST', body: JSON.stringify({ url }) }),
   getRepository: (id: string) => request<Repository>(`/v1/repositories/${id}`),
   getCodeHealth: (id: string) => request<CodeHealth>(`/v1/repositories/${id}/code-health`),
-  scanRepositorySecrets: (id: string) => request<{ repository_id: string; findings: SecretFinding[] }>(`/v1/repositories/${id}/secrets`),
+  scanRepositorySecrets: (id: string) =>
+    request<{ repository_id: string; findings: SecretFinding[]; note_path?: string | null }>(
+      `/v1/repositories/${id}/secrets`,
+    ),
+  remediateRepositorySecrets: (id: string, apply: boolean) =>
+    request<SecretRemediationResponse>(`/v1/repositories/${id}/secrets/remediation`, {
+      method: 'POST',
+      body: JSON.stringify({ apply }),
+    }),
   getWorkflowHealth: (id: string) => request<WorkflowHealth>(`/v1/repositories/${id}/workflows`),
   reviewPullRequestSecurity: (repositoryId: string, pullRequestNumber: number) => request<{ repository_id: string; pull_request_number: number; findings: SecurityReviewFinding[] }>(`/v1/repositories/${repositoryId}/pull-requests/${pullRequestNumber}/security-review`, { method: 'POST' }),
   analyzeIncident: (payload: { source: string; summary?: string; logs?: string; repository_id?: string }) => request<IncidentAnalysis>('/v1/incidents/analyze', { method: 'POST', body: JSON.stringify(payload) }),

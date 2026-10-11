@@ -20,6 +20,11 @@ _SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
         "token",
     ),
     (
+        "API Key",
+        re.compile(r"\b(sk-[A-Za-z0-9_-]{16,}|sk_live_[A-Za-z0-9]{12,}|rk_live_[A-Za-z0-9]{12,}|sk_test_[A-Za-z0-9]{12,})\b", re.IGNORECASE),
+        "token",
+    ),
+    (
         "Database Credential",
         re.compile(r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis)://[^\s\"'<>]+", re.IGNORECASE),
         "database-url",
@@ -32,7 +37,7 @@ _SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
     (
         "Credential",
         re.compile(
-            r"""(?i)\b[A-Za-z0-9_-]*(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|passwd|secret|aws_secret_access_key|account[_-]?key|connection[_-]?string|signing[_-]?key)[A-Za-z0-9_-]*\b\s*[:=]\s*['"]?([A-Za-z0-9/+=_.-]{8,})"""
+            r"""(?i)\b[A-Za-z0-9_-]*(?:api[_-]?key|access[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|client[_-]?secret|password|passwd|passphrase|secret|token|credential|bearer|aws_secret_access_key|account[_-]?key|connection[_-]?string|private[_-]?key|signing[_-]?key)[A-Za-z0-9_-]*\b\s*[:=]\s*['"]?([A-Za-z0-9/+=_.@!#$%^&*?~-]{8,})"""
         ),
         "generic",
     ),
@@ -81,6 +86,7 @@ def _safe_mask(kind: str, match: re.Match[str]) -> str:
 def detect_secrets(files: list[object]) -> list[SecretFinding]:
     findings: list[SecretFinding] = []
     seen: set[tuple[str, int, str]] = set()
+    matched_lines: set[tuple[str, int]] = set()
     for source_file in files:
         path = str(getattr(source_file, "path", ""))
         if not path or any(part.lower() == ".git" for part in path.replace("\\", "/").split("/")):
@@ -93,10 +99,14 @@ def detect_secrets(files: list[object]) -> list[SecretFinding]:
                         value = match.group(1)
                         if _is_placeholder(value):
                             continue
+                        # A specific rule already flagged this line; avoid a duplicate generic hit.
+                        if (path, line_number) in matched_lines:
+                            continue
                     key = (path, line_number, secret_type)
                     if key in seen:
                         continue
                     seen.add(key)
+                    matched_lines.add((path, line_number))
                     findings.append(
                         SecretFinding(
                             secret_type=secret_type,

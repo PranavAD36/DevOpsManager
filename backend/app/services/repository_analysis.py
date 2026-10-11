@@ -8,6 +8,7 @@ from app.integrations.github_app import GitHubAppError, GitHubAppService
 from app.models.core import AnalysisRun, Issue, Repository, Project
 from app.services.ai_service import AIProviderError, analyze_repository_content
 from app.services.secret_detection import scan_and_exclude_secret_files
+from app.services.secret_notes import write_secret_note
 from app.services.alerts import make_alert_fingerprint, record_alert
 from app.integrations.github_app import is_relevant_source_path
 
@@ -40,6 +41,8 @@ async def run_repository_analysis(
             include_sensitive_files=True,
         )
         files_without_secrets, secret_findings = scan_and_exclude_secret_files(files)
+        if secret_findings:
+            write_secret_note(repository.full_name, secret_findings)
         secret_paths = {finding.file_path for finding in secret_findings}
         safe_files = [item for item in files_without_secrets if is_relevant_source_path(item.path)]
         result = await analyze_repository_content(

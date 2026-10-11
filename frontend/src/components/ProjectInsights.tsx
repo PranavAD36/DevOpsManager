@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   api,
   type CodeHealth,
@@ -8,6 +8,8 @@ import {
   type Repository,
   type SecurityReviewFinding,
   type SecretFinding,
+  type SecretRemediationAction,
+  type SecretRemediationResult,
   type WorkflowHealth,
   type WorkflowRun,
 } from "../lib/api";
@@ -83,10 +85,20 @@ function runsTable(runs: WorkflowRun[]) {
 
 export default function ProjectInsights({ repositories }: { repositories: Repository[] }) {
   const [repositoryId, setRepositoryId] = useState("");
+  const orderedRepositories = useMemo(
+    () => [...repositories].sort((a, b) => (a.created_at || "").localeCompare(b.created_at || "")),
+    [repositories],
+  );
+  const selectedRepository = repositories.find((repo) => repo.id === repositoryId) ?? null;
   const [codeHealth, setCodeHealth] = useState<CodeHealth | null>(null);
   const [workflows, setWorkflows] = useState<WorkflowHealth | null>(null);
   const [workflowError, setWorkflowError] = useState<string | null>(null);
   const [secrets, setSecrets] = useState<SecretFinding[] | null>(null);
+  const [secretNotePath, setSecretNotePath] = useState<string | null>(null);
+  const [remediationActions, setRemediationActions] = useState<SecretRemediationAction[] | null>(null);
+  const [remediationResults, setRemediationResults] = useState<SecretRemediationResult[] | null>(null);
+  const [remediating, setRemediating] = useState(false);
+  const [remediationError, setRemediationError] = useState<string | null>(null);
   const [loadingHealth, setLoadingHealth] = useState(false);
   const [loadingWorkflows, setLoadingWorkflows] = useState(false);
   const [scanningSecrets, setScanningSecrets] = useState(false);
@@ -105,8 +117,8 @@ export default function ProjectInsights({ repositories }: { repositories: Reposi
   const [securityError, setSecurityError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!repositoryId && repositories[0]) setRepositoryId(repositories[0].id);
-  }, [repositories, repositoryId]);
+    if (!repositoryId && orderedRepositories[0]) setRepositoryId(orderedRepositories[0].id);
+  }, [orderedRepositories, repositoryId]);
 
   useEffect(() => {
     if (!repositoryId) return;
@@ -115,6 +127,10 @@ export default function ProjectInsights({ repositories }: { repositories: Reposi
     setCodeHealth(null);
     setWorkflows(null);
     setSecrets(null);
+    setSecretNotePath(null);
+    setRemediationActions(null);
+    setRemediationResults(null);
+    setRemediationError(null);
     setSecurityFindings(null);
 
     setLoadingHealth(true);
@@ -140,13 +156,50 @@ export default function ProjectInsights({ repositories }: { repositories: Reposi
     if (!repositoryId) return;
     setScanningSecrets(true);
     setError(null);
+    setRemediationActions(null);
+    setRemediationResults(null);
+    setRemediationError(null);
     try {
       const result = await api.scanRepositorySecrets(repositoryId);
       setSecrets(result.findings);
+      setSecretNotePath(result.note_path ?? null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to scan for secrets.");
     } finally {
       setScanningSecrets(false);
+    }
+  }
+
+  async function previewRemediation() {
+    if (!repositoryId) return;
+    setRemediating(true);
+    setRemediationError(null);
+    setRemediationResults(null);
+    try {
+      const result = await api.remediateRepositorySecrets(repositoryId, false);
+      setRemediationActions(result.actions);
+    } catch (requestError) {
+      setRemediationError(requestError instanceof Error ? requestError.message : "Unable to prepare the fix.");
+    } finally {
+      setRemediating(false);
+    }
+  }
+
+  async function applyRemediation() {
+    if (!repositoryId) return;
+    setRemediating(true);
+    setRemediationError(null);
+    try {
+      const result = await api.remediateRepositorySecrets(repositoryId, true);
+      setRemediationActions(result.actions);
+      setRemediationResults(result.results);
+      const refreshed = await api.scanRepositorySecrets(repositoryId);
+      setSecrets(refreshed.findings);
+      setSecretNotePath(refreshed.note_path ?? null);
+    } catch (requestError) {
+      setRemediationError(requestError instanceof Error ? requestError.message : "Unable to push the fix.");
+    } finally {
+      setRemediating(false);
     }
   }
 
@@ -212,7 +265,7 @@ export default function ProjectInsights({ repositories }: { repositories: Reposi
           value={repositoryId}
           onChange={(event) => setRepositoryId(event.target.value)}
         >
-          {repositories.map((repo) => (
+          {orderedRepositories.map((repo) => (
             <option key={repo.id} value={repo.id}>
               {repo.full_name}
             </option>
@@ -315,18 +368,35 @@ export default function ProjectInsights({ repositories }: { repositories: Reposi
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold text-white">Secret Detection</h2>
-            <p className="mt-1 text-xs text-slate-500">Scans repository source for credential patterns. Values are masked and never stored.</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Scans {selectedRepository ? selectedRepository.full_name : "the selected repository"} source files, including{" "}
+              <span className="font-mono text-slate-400">.env</span> and key files, for credential patterns. Values are masked and never stored.
+            </p>
           </div>
-          <button className="btn-primary !py-2 !px-4 !text-xs" disabled={scanningSecrets || !repositoryId} onClick={() => void scanSecrets()}>
-            {scanningSecrets ? "Scanning..." : "Scan for Secrets"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button className="btn-primary !py-2 !px-4 !text-xs" disabled={scanningSecrets || !repositoryId} onClick={() => void scanSecrets()}>
+              {scanningSecrets ? "Scanning..." : "Scan for Secrets"}
+            </button>
+            {secrets !== null && secrets.length > 0 && (
+              <button className="btn-accent !py-2 !px-4 !text-xs" disabled={remediating || !repositoryId} onClick={() => void previewRemediation()}>
+                {remediating ? "Working..." : "Fix secrets"}
+              </button>
+            )}
+          </div>
         </div>
         {secrets === null ? (
-          <p className="mt-5 text-sm text-slate-500">Run a scan to check this repository for exposed credentials.</p>
+          <p className="mt-5 text-sm text-slate-500">
+            Run a scan to check {selectedRepository ? selectedRepository.full_name : "this repository"} for exposed credentials.
+          </p>
         ) : secrets.length === 0 ? (
-          <p className="mt-5 text-sm text-emerald-400">No secret-like credentials were detected.</p>
+          <p className="mt-5 text-sm text-emerald-400">
+            No secret-like credentials were detected in {selectedRepository ? selectedRepository.full_name : "this repository"}.
+          </p>
         ) : (
           <div className="mt-5 space-y-2">
+            <p className="text-xs text-slate-500">
+              {secrets.length} finding{secrets.length === 1 ? "" : "s"} in {selectedRepository ? selectedRepository.full_name : "this repository"}
+            </p>
             {secrets.map((finding, index) => (
               <div
                 key={finding.file_path + ":" + finding.line_number + ":" + index}
@@ -341,6 +411,72 @@ export default function ProjectInsights({ repositories }: { repositories: Reposi
                 <span className={"badge " + (severityBadge[finding.severity] || "badge-slate")}>{finding.severity}</span>
               </div>
             ))}
+          </div>
+        )}
+        {secretNotePath && (
+          <p className="mt-4 text-xs text-slate-500">
+            Full list saved to <span className="font-mono text-slate-400">{secretNotePath}</span> and added to
+            <span className="font-mono text-slate-400"> .gitignore</span> automatically.
+          </p>
+        )}
+
+        {remediationError && (
+          <div className="mt-4 rounded-xl border border-rose-900/50 bg-rose-950/25 px-4 py-3 text-sm text-rose-300" role="alert">
+            {remediationError}
+          </div>
+        )}
+
+        {remediationResults && remediationResults.length > 0 && (
+          <div className="mt-4 space-y-2">
+            <p className="text-xs font-mono uppercase tracking-wider text-slate-500">Pushed fixes</p>
+            {remediationResults.map((result, index) => (
+              <div key={result.file_path + index} className="rounded-lg border border-[#1e2d4a] bg-[#0b1120]/60 p-3 text-xs">
+                <span className={"badge " + (result.ok ? "badge-emerald" : "badge-rose")}>{result.ok ? "done" : "failed"}</span>
+                <span className="ml-2 font-mono text-slate-300">{result.file_path}</span>
+                <p className="mt-1 text-slate-500">{result.message}</p>
+                {result.commit_url && (
+                  <a href={result.commit_url} target="_blank" rel="noreferrer" className="mt-1 inline-block text-cyan-300 underline underline-offset-2">
+                    View commit
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {remediationActions && remediationResults === null && (
+          <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+            <p className="text-sm font-medium text-amber-200">
+              {remediationActions.length === 0
+                ? "Nothing to fix - no credentials were found."
+                : "Ready to clean up " + remediationActions.length + " item(s):"}
+            </p>
+            {remediationActions.length > 0 && (
+              <>
+                <ul className="mt-3 space-y-2">
+                  {remediationActions.map((action, index) => (
+                    <li key={action.file_path + index} className="rounded-lg border border-[#1e2d4a] bg-[#0b1120]/60 p-3">
+                      <p className="text-xs font-medium text-white">
+                        {action.action === "gitignore" ? "Add to .gitignore" : "Remove line(s) " + action.line_numbers.join(", ")}
+                        <span className="text-slate-500"> - </span>
+                        <span className="font-mono text-slate-400">{action.file_path}</span>
+                      </p>
+                      {action.removed_snippet && (
+                        <pre className="mt-2 overflow-x-auto rounded bg-[#0b1120] p-2 font-mono text-[11px] text-slate-400">{action.removed_snippet}</pre>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-3 flex items-center gap-2">
+                  <button className="btn-accent !py-2 !px-4 !text-xs" disabled={remediating} onClick={() => void applyRemediation()}>
+                    {remediating ? "Pushing..." : "Approve & Push"}
+                  </button>
+                  <button className="btn-secondary !py-2 !px-4 !text-xs" disabled={remediating} onClick={() => setRemediationActions(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
       </section>

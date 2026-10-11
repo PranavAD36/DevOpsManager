@@ -9,6 +9,7 @@ from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
 from app.models.core import GitHubAccount
+from app.services import secret_notes
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -39,7 +40,7 @@ class MockGitHubUser:
 
 
 @pytest.fixture(autouse=True, scope="function")
-def setup_test_db(monkeypatch):
+def setup_test_db(monkeypatch, tmp_path):
     async def init_tables():
         async with test_engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
@@ -63,6 +64,9 @@ def setup_test_db(monkeypatch):
     # Initialize database
     asyncio.run(init_tables())
     monkeypatch.setattr("app.main.init_db", skip_application_database_initialization)
+    # Never let a test write secret notes (or touch the real .gitignore) in the working tree.
+    monkeypatch.setattr(secret_notes, "NOTES_DIR", tmp_path / "data" / "secret_notes")
+    monkeypatch.setattr(secret_notes, "GITIGNORE_PATH", tmp_path / ".gitignore")
     
     # Set up dependency override for database session
     app.dependency_overrides[get_db_session] = override_get_db_session

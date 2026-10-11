@@ -13,6 +13,116 @@ from app.services.secret_detection import (
     redact_secrets,
     scan_and_exclude_secret_files,
 )
+from app.services import secret_notes
+from app.integrations.github_app import GitHubAppError
+from app.services import secret_remediation
+
+
+class _FakeGitHub:
+    def __init__(self, files: dict[str, str], gitignore: str | None = None) -> None:
+        self.files = dict(files)
+        self.gitignore = gitignore
+        self.updated: list[tuple[str, str, str | None]] = []
+
+    async def get_repository_source_files(self, *args, **kwargs):
+        return [SimpleNamespace(path=path, content=content) for path, content in self.files.items()]
+
+    async def get_file(self, token, owner, repository, path, branch):
+        if path == ".gitignore":
+            if self.gitignore is None:
+                raise GitHubAppError("Repository file not found", 404)
+            return SimpleNamespace(path=path, content=self.gitignore, sha="sha-ignore")
+        return SimpleNamespace(path=path, content=self.files[path], sha="sha-" + path)
+
+    async def update_file(self, token, owner, repository, path, branch, content, sha, message):
+        self.updated.append((path, content, sha))
+        if path == ".gitignore":
+            self.gitignore = content
+        else:
+            self.files[path] = content
+        return SimpleNamespace(sha="commit-" + path, html_url="https://example.test/" + path)
+
+
+def test_secret_remediation_plans_then_pushes_safe_fixes() -> None:
+    repository = SimpleNamespace(owner="PranavAD36", name="Testing-Repo", default_branch="main")
+    service = _FakeGitHub(
+        {
+            ".env": "GIT_HUB-SECRATE=SK-1223654VSDZV354CS534DC\n",
+            "test.cpp": (
+                "#include <iostream>\n\nint main() {\n"
+                '    std::cout << "Hello, world!" << std::endl;\n'
+                "    //PassWord=Hello!123\n    return 0;\n}\n"
+            ),
+        }
+    )
+
+    async def execute():
+        actions = await secret_remediation.plan_secret_remediation(repository, "token", service)
+        assert {(action.file_path, action.action) for action in actions} == {
+            (".env", "gitignore"),
+            ("test.cpp", "remove_lines"),
+        }
+        _, results = await secret_remediation.apply_secret_remediation(repository, "token", service)
+        assert results and all(result.ok for result in results)
+
+    asyncio.run(execute())
+
+    assert ".env" in (service.gitignore or "")
+    assert "PassWord" not in service.files["test.cpp"]
+    assert "Hello, world!" in service.files["test.cpp"]
+    assert {path for path, _, _ in service.updated} == {".gitignore", "test.cpp"}
+
+
+def test_secret_remediation_reports_nothing_to_fix() -> None:
+    repository = SimpleNamespace(owner="PranavAD36", name="Clean-Repo", default_branch="main")
+    service = _FakeGitHub({"app.py": "print('safe')\n"})
+
+    actions = asyncio.run(secret_remediation.plan_secret_remediation(repository, "token", service))
+
+    assert actions == []
+
+
+def test_secret_detection_flags_env_files_and_inline_password_comments() -> None:
+    files = [
+        SimpleNamespace(path=".env", content="GIT_HUB-SECRATE=SK-1223654VSDZV354CS534DC\n"),
+        SimpleNamespace(
+            path="test.cpp",
+            content='#include <iostream>\n\nint main() {\n    //PassWord=Hello!123\n    return 0;\n}\n',
+        ),
+    ]
+
+    findings = detect_secrets(files)
+
+    assert {(finding.file_path, finding.line_number) for finding in findings} == {(".env", 1), ("test.cpp", 4)}
+    assert all("Hello!123" not in finding.masked_value for finding in findings)
+    assert all("SK-1223654" not in finding.masked_value for finding in findings)
+
+
+def test_secret_note_is_written_and_git_ignored(tmp_path, monkeypatch) -> None:
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text("# existing\nnode_modules/\n", encoding="utf-8")
+    monkeypatch.setattr(secret_notes, "NOTES_DIR", tmp_path / "backend" / "data" / "secret_notes")
+    monkeypatch.setattr(secret_notes, "GITIGNORE_PATH", gitignore)
+    findings = detect_secrets(
+        [SimpleNamespace(path=".env", content="API_KEY=sk-abcdefghijklmnopqrstuvwx\n")]
+    )
+
+    note_path = secret_notes.write_secret_note("PranavAD36/Testing-Repo", findings)
+
+    assert note_path is not None
+    note_text = (tmp_path / "backend" / "data" / "secret_notes" / "PranavAD36_Testing-Repo.txt").read_text(encoding="utf-8")
+    assert "PranavAD36/Testing-Repo" in note_text
+    assert ".env:1" in note_text
+    assert "sk-abcdefghijklmnopqrstuvwx" not in note_text
+    assert "backend/data/secret_notes/" in gitignore.read_text(encoding="utf-8")
+
+
+def test_secret_note_is_skipped_when_nothing_found(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(secret_notes, "NOTES_DIR", tmp_path / "notes")
+    monkeypatch.setattr(secret_notes, "GITIGNORE_PATH", tmp_path / ".gitignore")
+
+    assert secret_notes.write_secret_note("owner/repo", []) is None
+    assert not (tmp_path / "notes").exists()
 
 
 def test_code_health_is_deterministic_and_uses_unresolved_issue_severity() -> None:

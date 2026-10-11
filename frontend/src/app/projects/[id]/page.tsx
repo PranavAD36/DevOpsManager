@@ -13,6 +13,7 @@ import {
 } from "../../../lib/api";
 import DiffViewer from "../../../components/DiffViewer";
 import ProjectInsights from "../../../components/ProjectInsights";
+import MarkdownMessage from "../../../components/MarkdownMessage";
 
 export default function ProjectDetailsPage() {
   const { id } = useParams<{ id: string }>();
@@ -45,6 +46,8 @@ export default function ProjectDetailsPage() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [indexing, setIndexing] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [chatNotice, setChatNotice] = useState<string | null>(null);
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchMessage, setBatchMessage] = useState("");
   const [batchRunning, setBatchRunning] = useState(false);
@@ -538,85 +541,133 @@ export default function ProjectDetailsPage() {
             {activeSection === "chat" && (
               <div className="glass-panel p-6">
                 <PageAlert error={error} message={message} />
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-lg font-semibold text-white">Repository Chat</h3>
-                  <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Repository Chat</h3>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Ask anything about a repository. Answers are generated live from its real source files.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
                     <select
                       className="input w-64 !py-2 !text-sm bg-[#101827] border-[#1e2d4a]"
                       value={chatRepositoryId}
-                      onChange={(e) => setChatRepositoryId(e.target.value)}
+                      onChange={(e) => {
+                        setChatRepositoryId(e.target.value);
+                        setChatMessages([]);
+                        setChatInput("");
+                        setChatError(null);
+                        setChatNotice(null);
+                      }}
                     >
                       <option value="">Select a repository...</option>
                       {repositories.map(r => <option key={r.id} value={r.id}>{r.full_name}</option>)}
                     </select>
                     <button
-                      className="btn-primary !py-2 !text-sm disabled:opacity-50"
+                      className="btn-secondary !py-2 !text-sm disabled:opacity-50"
+                      title="Optional: builds a semantic search index. Chat works without it."
                       disabled={!chatRepositoryId || indexing}
                       onClick={async () => {
                         setIndexing(true);
+                        setChatError(null);
+                        setChatNotice(null);
                         try {
                           await api.indexRepository(chatRepositoryId);
-                          alert("Indexing started in background!");
-                        } catch(e) {
-                          alert(e instanceof Error ? e.message : "Error");
+                          setChatNotice("Semantic index is building in the background. You can keep chatting meanwhile.");
+                        } catch (e) {
+                          setChatError(e instanceof Error ? e.message : "Could not start indexing.");
                         }
                         setIndexing(false);
                       }}
                     >
-                      {indexing ? "Indexing..." : "Index Repository"}
+                      {indexing ? "Indexing..." : "Build semantic index"}
                     </button>
                   </div>
                 </div>
-                
+
+                {chatNotice && (
+                  <div className="mb-4 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-200">
+                    {chatNotice}
+                  </div>
+                )}
+                {chatError && (
+                  <div className="mb-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+                    {chatError}
+                  </div>
+                )}
+
                 <div className="bg-[#0b1120] rounded-xl border border-[#1e2d4a] flex flex-col h-[500px]">
                   <div className="flex-1 p-4 overflow-y-auto space-y-4">
                     {chatMessages.length === 0 ? (
-                      <div className="text-center text-slate-500 mt-20">Select a repository, index it, and start chatting!</div>
+                      <div className="flex h-full flex-col items-center justify-center text-center text-slate-500">
+                        <p className="text-sm">
+                          {chatRepositoryId
+                            ? "Ask a question about this repository to get started."
+                            : "Select a repository above, then ask a question about its code."}
+                        </p>
+                        <p className="mt-2 text-xs text-slate-600">
+                          e.g. "Where is authentication handled?" or "How are errors logged?"
+                        </p>
+                      </div>
                     ) : (
                       chatMessages.map((msg, i) => (
                         <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`max-w-[80%] rounded-xl p-3 text-sm ${msg.role === 'user' ? 'bg-cyan-500/20 text-cyan-100' : 'bg-[#1e2d4a] text-slate-200'}`}>
-                            <pre className="whitespace-pre-wrap font-sans">{msg.text}</pre>
+                          <div className={`max-w-[85%] rounded-xl p-3 text-sm ${msg.role === 'user' ? 'bg-cyan-500/20 text-cyan-100' : 'bg-[#1e2d4a] text-slate-200'}`}>
+                            {msg.role === 'user' ? (
+                              <p className="whitespace-pre-wrap">{msg.text}</p>
+                            ) : (
+                              <MarkdownMessage text={msg.text} />
+                            )}
                           </div>
                         </div>
                       ))
                     )}
-                    {chatLoading && <div className="text-slate-400 text-sm italic">AI is thinking...</div>}
+                    {chatLoading && (
+                      <div className="flex justify-start">
+                        <div className="rounded-xl bg-[#1e2d4a] px-3 py-2 text-sm text-slate-400">
+                          <span className="inline-flex items-center gap-1">
+                            Reading repository files
+                            <span className="animate-pulse">...</span>
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  
+
                   <div className="p-4 border-t border-[#1e2d4a]">
-                    <form 
+                    <form
                       className="flex gap-3"
                       onSubmit={async (e) => {
                         e.preventDefault();
-                        if (!chatInput.trim() || !chatRepositoryId) return;
+                        if (!chatInput.trim() || !chatRepositoryId || chatLoading) return;
                         const query = chatInput.trim();
                         setChatInput("");
                         setChatMessages(prev => [...prev, { role: 'user', text: query }]);
                         setChatLoading(true);
+                        setChatError(null);
                         try {
                           const res = await api.chatWithRepo(chatRepositoryId, query);
                           setChatMessages(prev => [...prev, { role: 'ai', text: res.answer }]);
-                        } catch(e) {
-                          setChatMessages(prev => [...prev, { role: 'ai', text: `Error: ${e instanceof Error ? e.message : 'Unknown'}` }]);
+                        } catch (e) {
+                          setChatMessages(prev => [...prev, { role: 'ai', text: `Could not get an answer: ${e instanceof Error ? e.message : 'Unknown error'}` }]);
                         }
                         setChatLoading(false);
                       }}
                     >
-                      <input 
-                        type="text" 
-                        className="input flex-1 bg-[#152035]" 
-                        placeholder="Ask a question about the codebase..."
+                      <input
+                        type="text"
+                        className="input flex-1 bg-[#152035]"
+                        placeholder={chatRepositoryId ? "Ask a question about the codebase..." : "Select a repository to start chatting"}
                         value={chatInput}
                         onChange={(e) => setChatInput(e.target.value)}
                         disabled={!chatRepositoryId || chatLoading}
                       />
-                      <button 
-                        type="submit" 
-                        className="btn-primary"
+                      <button
+                        type="submit"
+                        className="btn-primary disabled:opacity-50"
                         disabled={!chatInput.trim() || !chatRepositoryId || chatLoading}
                       >
-                        Send
+                        {chatLoading ? "Sending..." : "Send"}
                       </button>
                     </form>
                   </div>
@@ -660,7 +711,11 @@ export default function ProjectDetailsPage() {
                 </div>
 
                 {changeError && <div className="mt-4 rounded-xl border border-rose-900/50 bg-rose-950/25 px-4 py-3 text-sm text-rose-300" role="alert">{changeError}</div>}
-                {changeSummary && <p className="mt-4 rounded-xl border border-cyan-900/40 bg-cyan-950/20 px-4 py-3 text-xs leading-relaxed text-cyan-100">{changeSummary}</p>}
+                {changeSummary && (
+                  <div className="mt-4 rounded-xl border border-cyan-900/40 bg-cyan-950/20 px-4 py-3 leading-relaxed text-cyan-100">
+                    <MarkdownMessage text={changeSummary} className="text-xs text-cyan-100" />
+                  </div>
+                )}
 
                 {changeProposals.length > 0 && (
                   <div className="mt-4 space-y-3">

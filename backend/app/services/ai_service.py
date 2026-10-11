@@ -347,6 +347,63 @@ async def analyze_security_pull_request_diff(
     return result
 
 
+async def _call_openrouter_text(prompt: str, system: str | None = None) -> str:
+    payload = {
+        "model": settings.openrouter_model,
+        "temperature": 0.2,
+        "messages": [
+            {"role": "system", "content": system or "You are a careful software engineering assistant."},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            response = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.openrouter_api_key}",
+                    "HTTP-Referer": "http://localhost:8000",
+                    "X-Title": "DevOpsManager",
+                },
+                json=payload,
+            )
+    except httpx.HTTPError as exc:
+        raise AIProviderError("OpenRouter request failed") from exc
+    if response.is_error:
+        if response.status_code == 401:
+            raise AIProviderError(f"OpenRouter authentication failed: {response.text}")
+        if response.status_code == 429:
+            raise AIProviderError(f"OpenRouter rate limit exceeded: {response.text}")
+        if response.status_code in (404, 422):
+            raise AIProviderError(f"OpenRouter model unavailable: {response.text}")
+        raise AIProviderError(f"OpenRouter returned HTTP {response.status_code}: {response.text}")
+    try:
+        return str(response.json()["choices"][0]["message"]["content"])
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise AIProviderError("OpenRouter returned an invalid response") from exc
+
+
+async def complete_text(
+    prompt: str,
+    system: str | None = None,
+    provider: str | None = None,
+) -> str:
+    """Return free-form model text using the configured provider.
+
+    Unlike the structured helpers this does not request JSON, so it is safe for chat answers.
+    """
+    selected_provider = (provider or settings.ai_provider).lower()
+    if selected_provider == "openrouter":
+        if not settings.openrouter_api_key:
+            raise AIProviderError("OPENROUTER_API_KEY is not configured")
+        return await _call_openrouter_text(prompt, system)
+    if selected_provider == "gemini":
+        if not settings.gemini_api_key:
+            raise AIProviderError("Gemini API key is not configured")
+        return await _call_gemini(prompt)
+    raise AIProviderError(f"Unsupported AI provider: {selected_provider}")
+
+
 def _build_prompt(repository_name: str, language: str | None, files: list[object], custom_rules: str | None = None) -> str:
     source = "\n\n".join(f"FILE: {item.path}\n{item.content}" for item in files)
     rules_text = (
