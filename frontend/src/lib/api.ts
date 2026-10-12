@@ -386,6 +386,7 @@ export const api = {
   listRepositories: (id: string) => request<Repository[]>(`/v1/projects/${id}/repositories`),
   createRepository: (id: string, payload: RepositoryInput) => request<Repository>(`/v1/projects/${id}/repositories`, { method: 'POST', body: JSON.stringify(payload) }),
   connectRepository: (id: string, url: string) => request<Repository>(`/v1/projects/${id}/repositories/connect`, { method: 'POST', body: JSON.stringify({ url }) }),
+  deleteRepository: (id: string) => request<void>(`/v1/repositories/${id}`, { method: 'DELETE' }),
   getRepository: (id: string) => request<Repository>(`/v1/repositories/${id}`),
   getCodeHealth: (id: string) => request<CodeHealth>(`/v1/repositories/${id}/code-health`),
   scanRepositorySecrets: (id: string) =>

@@ -8,6 +8,7 @@ import {
   type EngineeringRepositoryActivity,
   type EngineeringTrends,
   type EngineeringAlert,
+  type GitHubRepository,
   type Issue,
   type Project,
   type Repository,
@@ -56,12 +57,15 @@ export default function EngineeringPage() {
   const [addRepoBusy, setAddRepoBusy] = useState(false);
   const [addRepoError, setAddRepoError] = useState<string | null>(null);
   const [addRepoMessage, setAddRepoMessage] = useState<string | null>(null);
+  const [githubRepos, setGithubRepos] = useState<GitHubRepository[]>([]);
+  const [githubReposLoading, setGithubReposLoading] = useState(false);
+  const [githubReposError, setGithubReposError] = useState<string | null>(null);
+  const [githubRepoFilter, setGithubRepoFilter] = useState("");
 
   useEffect(() => {
     api.listProjects()
       .then((items) => {
         setProjects(items);
-        if (items[0]) setProjectId(items[0].id);
       })
       .catch((requestError) => setPageError(requestError instanceof Error ? requestError.message : "Unable to load projects."));
   }, []);
@@ -79,7 +83,7 @@ export default function EngineeringPage() {
       .then(([repoItems, trendData]) => {
         setRepositories(repoItems);
         setTrends(trendData);
-        setHealthRepositoryId((current) => (repoItems.some((repo) => repo.id === current) ? current : repoItems[0]?.id ?? ""));
+        setHealthRepositoryId((current) => (repoItems.some((repo) => repo.id === current) ? current : ""));
       })
       .catch((requestError) => setTrendsError(requestError instanceof Error ? requestError.message : "Unable to load engineering trends."))
       .finally(() => setLoading(false));
@@ -99,6 +103,22 @@ export default function EngineeringPage() {
       .then(setAlerts)
       .catch((requestError) => setAlertsError(requestError instanceof Error ? requestError.message : "Unable to load alerts."));
   }, []);
+
+  useEffect(() => {
+    if (!addRepoOpen) return;
+    setGithubReposLoading(true);
+    setGithubReposError(null);
+    api.listGithubRepositories()
+      .then(setGithubRepos)
+      .catch((requestError) =>
+        setGithubReposError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Connect your GitHub account to list your repositories.",
+        ),
+      )
+      .finally(() => setGithubReposLoading(false));
+  }, [addRepoOpen]);
 
   async function generateReport() {
     if (!projectId) return;
@@ -224,13 +244,14 @@ export default function EngineeringPage() {
     }
   }
 
-  async function addRepository() {
-    if (!projectId || !newRepoUrl.trim()) return;
+  async function addRepository(overrideUrl?: string) {
+    const targetUrl = (overrideUrl ?? newRepoUrl).trim();
+    if (!projectId || !targetUrl) return;
     setAddRepoBusy(true);
     setAddRepoError(null);
     setAddRepoMessage(null);
     try {
-      const repository = await api.connectRepository(projectId, newRepoUrl.trim());
+      const repository = await api.connectRepository(projectId, targetUrl);
       setRepositories((current) => (current.some((item) => item.id === repository.id) ? current : [...current, repository]));
       setHealthRepositoryId((current) => current || repository.id);
       setRepositoryFilter(repository.id);
@@ -299,11 +320,69 @@ export default function EngineeringPage() {
             </div>
             {addRepoError && <SectionError message={addRepoError} />}
             {addRepoMessage && <p className="mt-3 text-xs text-emerald-300">{addRepoMessage}</p>}
+
+            <div className="mt-5 border-t border-[#1e2d4a] pt-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs font-mono uppercase tracking-wider text-slate-500">
+                  Your GitHub repositories{githubRepos.length ? " (" + githubRepos.length + ")" : ""}
+                </p>
+                <input
+                  className="input !py-1.5 text-xs w-full sm:w-56"
+                  placeholder="Search your repositories..."
+                  value={githubRepoFilter}
+                  onChange={(event) => setGithubRepoFilter(event.target.value)}
+                  disabled={githubReposLoading}
+                />
+              </div>
+              {githubReposLoading ? (
+                <p className="mt-3 text-xs text-slate-500">Loading your repositories...</p>
+              ) : githubReposError ? (
+                <p className="mt-3 text-xs text-amber-300">{githubReposError}</p>
+              ) : githubRepos.length === 0 ? (
+                <p className="mt-3 text-xs text-slate-500">
+                  No repositories were returned for your GitHub account. Use the URL field above instead.
+                </p>
+              ) : (
+                <div className="mt-3 grid max-h-72 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
+                  {githubRepos
+                    .filter((repo) => repo.full_name.toLowerCase().includes(githubRepoFilter.toLowerCase()))
+                    .map((repo) => {
+                      const alreadyAdded = repositories.some((item) => item.full_name === repo.full_name);
+                      return (
+                        <button
+                          key={repo.id}
+                          type="button"
+                          disabled={alreadyAdded || addRepoBusy}
+                          onClick={() => void addRepository(repo.html_url)}
+                          className="flex items-center justify-between gap-2 rounded-xl border border-[#1e2d4a] bg-[#0b1120]/60 px-3 py-2 text-left transition-colors hover:border-cyan-500/40 disabled:opacity-50"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-xs text-white">{repo.full_name}</span>
+                            <span className="block text-[11px] text-slate-500">
+                              {(repo.private ? "Private" : "Public") + (repo.language ? " - " + repo.language : "")}
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-[11px] font-medium text-cyan-300">
+                            {alreadyAdded ? "Added" : "Add"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
         {pageError && <div className="mb-6 rounded-xl border border-rose-900/50 bg-rose-950/20 px-4 py-3 text-sm text-rose-300" role="alert">{pageError}</div>}
         {!projects.length && !pageError && <div className="glass-panel p-8 text-center text-sm text-slate-400">No projects are available yet. <Link className="text-cyan-300 hover:text-cyan-200" href="/projects">Connect a repository</Link>.</div>}
+        {!projectId && projects.length > 0 && (
+          <div className="glass-panel p-10 text-center">
+            <p className="text-sm text-slate-400">
+              Select a project above to view trends, reports, repository health, and security findings.
+            </p>
+          </div>
+        )}
 
         {projectId && (
           <div className="space-y-8">
@@ -632,58 +711,161 @@ function TrendLegend({ availableMetrics }: { availableMetrics: string[] }) {
 }
 
 function TrendChart({ series, availableMetrics }: { series: EngineeringPoint[]; availableMetrics: string[] }) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const metrics = TREND_METRICS.filter((metric) => availableMetrics.includes(metric.key));
   if (!series.length || !metrics.length) {
     return <p className="py-12 text-center text-sm text-slate-500">No activity was recorded in this period.</p>;
   }
   const width = 760;
   const height = 260;
-  const pad = { top: 18, right: 18, bottom: 30, left: 48 };
+  const pad = { top: 22, right: 20, bottom: 32, left: 46 };
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
   const maxValue = Math.max(1, ...series.flatMap((point) => metrics.map((metric) => point[metric.key as TrendMetricKey])));
   const stepX = series.length > 1 ? innerW / (series.length - 1) : 0;
   const xAt = (index: number) => pad.left + index * stepX;
   const yAt = (value: number) => pad.top + innerH - (value / maxValue) * innerH;
+  const clampY = (value: number) => Math.max(pad.top, Math.min(pad.top + innerH, value));
   const gridLines = [0, 0.25, 0.5, 0.75, 1];
   const labelIndexes = Array.from(new Set([0, Math.floor((series.length - 1) / 2), series.length - 1]));
+  const bandWidth = series.length > 1 ? stepX : innerW;
+
+  function smooth(points: { x: number; y: number }[]): string {
+    if (!points.length) return "";
+    if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+    let path = `M ${points[0].x} ${points[0].y}`;
+    for (let index = 0; index < points.length - 1; index += 1) {
+      const p0 = points[index - 1] ?? points[index];
+      const p1 = points[index];
+      const p2 = points[index + 1];
+      const p3 = points[index + 2] ?? p2;
+      path += ` C ${p1.x + (p2.x - p0.x) / 6} ${clampY(p1.y + (p2.y - p0.y) / 6)}, ${p2.x - (p3.x - p1.x) / 6} ${clampY(p2.y - (p3.y - p1.y) / 6)}, ${p2.x} ${p2.y}`;
+    }
+    return path;
+  }
+
+  const hovered = hoverIndex === null ? null : series[hoverIndex];
+  const hoverX = hoverIndex === null ? 0 : xAt(hoverIndex);
+  const hoverTop = hovered ? Math.min(...metrics.map((metric) => yAt(hovered[metric.key as TrendMetricKey]))) : 0;
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-64 w-full" role="img" aria-label="Engineering activity timeline">
-      <defs>
-        {metrics.map((metric) => (
-          <linearGradient key={metric.key} id={`trend-fill-${metric.key}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={metric.color} stopOpacity="0.28" />
-            <stop offset="100%" stopColor={metric.color} stopOpacity="0" />
-          </linearGradient>
-        ))}
-      </defs>
-      {gridLines.map((ratio) => (
-        <g key={ratio}>
-          <line x1={pad.left} x2={width - pad.right} y1={yAt(maxValue * ratio)} y2={yAt(maxValue * ratio)} stroke="#1e2d4a" strokeWidth="1" />
-          <text x={pad.left - 8} y={yAt(maxValue * ratio) + 3} textAnchor="end" className="fill-slate-500" fontSize="10">{Math.round(maxValue * ratio)}</text>
-        </g>
-      ))}
-      {metrics.map((metric) => {
-        const points = series.map((point, index) => ({ x: xAt(index), y: yAt(point[metric.key as TrendMetricKey]) }));
-        const line = points.map((point) => `${point.x},${point.y}`).join(" ");
-        const area = `${pad.left},${pad.top + innerH} ${line} ${xAt(series.length - 1)},${pad.top + innerH}`;
-        return (
-          <g key={metric.key}>
-            <polygon points={area} fill={`url(#trend-fill-${metric.key})`} />
-            <polyline points={line} fill="none" stroke={metric.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-            {points.map((point, index) => (
-              <circle key={index} cx={point.x} cy={point.y} r="2.6" fill={metric.color}>
-                <title>{`${series[index].date}: ${metric.label} ${series[index][metric.key as TrendMetricKey]}`}</title>
-              </circle>
-            ))}
+    <div className="relative mt-2 rounded-2xl border border-[#1e2d4a] bg-gradient-to-b from-[#0b1120]/80 to-[#0b1120]/30 p-2">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="h-64 w-full"
+        role="img"
+        aria-label="Engineering activity timeline"
+        onMouseLeave={() => setHoverIndex(null)}
+      >
+        <defs>
+          {metrics.map((metric) => (
+            <linearGradient key={metric.key} id={`trend-fill-${metric.key}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={metric.color} stopOpacity="0.34" />
+              <stop offset="100%" stopColor={metric.color} stopOpacity="0" />
+            </linearGradient>
+          ))}
+          <filter id="trend-glow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="2.5" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        {gridLines.map((ratio) => (
+          <g key={ratio}>
+            <line
+              x1={pad.left}
+              x2={width - pad.right}
+              y1={yAt(maxValue * ratio)}
+              y2={yAt(maxValue * ratio)}
+              stroke="#1e2d4a"
+              strokeWidth="1"
+              strokeDasharray={ratio === 0 ? "0" : "3 6"}
+            />
+            <text x={pad.left - 10} y={yAt(maxValue * ratio) + 3} textAnchor="end" className="fill-slate-500" fontSize="10">
+              {Math.round(maxValue * ratio)}
+            </text>
           </g>
-        );
-      })}
-      {labelIndexes.map((index) => (
-        <text key={index} x={xAt(index)} y={height - 10} textAnchor="middle" className="fill-slate-500" fontSize="10">{series[index].date.slice(5)}</text>
-      ))}
-    </svg>
+        ))}
+
+        {metrics.map((metric) => {
+          const points = series.map((point, index) => ({ x: xAt(index), y: yAt(point[metric.key as TrendMetricKey]) }));
+          const line = smooth(points);
+          const area = `${line} L ${xAt(series.length - 1)} ${pad.top + innerH} L ${pad.left} ${pad.top + innerH} Z`;
+          return (
+            <g key={metric.key} filter="url(#trend-glow)">
+              <path d={area} fill={`url(#trend-fill-${metric.key})`} stroke="none" />
+              <path d={line} fill="none" stroke={metric.color} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
+            </g>
+          );
+        })}
+
+        {hoverIndex !== null && (
+          <line x1={hoverX} x2={hoverX} y1={pad.top} y2={pad.top + innerH} stroke="#64748b" strokeWidth="1" strokeDasharray="3 4" />
+        )}
+
+        {metrics.map((metric) =>
+          hoverIndex === null ? (
+            series.map((_point, index) => (
+              <circle
+                key={`${metric.key}-${index}`}
+                cx={xAt(index)}
+                cy={yAt(series[index][metric.key as TrendMetricKey])}
+                r="2.2"
+                fill={metric.color}
+                opacity="0.7"
+              />
+            ))
+          ) : (
+            <circle
+              key={metric.key}
+              cx={hoverX}
+              cy={yAt(hovered ? hovered[metric.key as TrendMetricKey] : 0)}
+              r="4.5"
+              fill="#0b1120"
+              stroke={metric.color}
+              strokeWidth="2.5"
+            />
+          ),
+        )}
+
+        {series.map((_point, index) => (
+          <rect
+            key={`band-${index}`}
+            x={xAt(index) - bandWidth / 2}
+            y={pad.top}
+            width={bandWidth}
+            height={innerH}
+            fill="transparent"
+            onMouseEnter={() => setHoverIndex(index)}
+          />
+        ))}
+
+        {labelIndexes.map((index) => (
+          <text key={index} x={xAt(index)} y={height - 10} textAnchor="middle" className="fill-slate-500" fontSize="10">
+            {series[index].date.slice(5)}
+          </text>
+        ))}
+      </svg>
+
+      {hovered && (
+        <div
+          className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full rounded-xl border border-[#1e2d4a] bg-[#0b1120]/95 px-3 py-2 shadow-xl shadow-black/40 backdrop-blur"
+          style={{ left: `${(hoverX / width) * 100}%`, top: `${(hoverTop / height) * 100}%` }}
+        >
+          <p className="mb-1 text-[11px] font-medium text-white">{hovered.date}</p>
+          {metrics.map((metric) => (
+            <p key={metric.key} className="flex items-center gap-2 text-[11px] text-slate-400">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: metric.color }} />
+              <span className="flex-1 pr-3">{metric.label}</span>
+              <span className="font-mono text-slate-200">{hovered[metric.key as TrendMetricKey]}</span>
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

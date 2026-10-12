@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.integrations.github_app import GitHubAppService, is_relevant_source_path
 from app.services.ai_service import AIProviderError, complete_text
 from app.services.secret_detection import scan_and_exclude_secret_files, redact_secrets
-from app.services.secret_notes import write_secret_note
+from app.services.secret_notes import collect_raw_lines, write_secret_note
 
 logger = logging.getLogger(__name__)
 
@@ -170,12 +170,13 @@ async def answer_repository_question(repository: object, access_token: str, quer
         str(getattr(repository, "default_branch", "main")),
         include_sensitive_files=True,
     )
+    all_files = files
     files, secret_findings = scan_and_exclude_secret_files(files)
     files = [item for item in files if is_relevant_source_path(str(getattr(item, "path", "") or ""))]
 
     secret_notice = ""
     if secret_findings:
-        write_secret_note(repository_name, secret_findings)
+        write_secret_note(repository_name, secret_findings, collect_raw_lines(all_files, secret_findings))
         locations = ", ".join(
             f"{finding.file_path}:{finding.line_number}" for finding in secret_findings[:5]
         )

@@ -41,7 +41,7 @@ export default function ProjectDetailsPage() {
     steps: { label: string; done: boolean; active: boolean }[];
   } | null>(null);
   const [activeSection, setActiveSection] = useState<"repositories" | "analysis" | "insights" | "settings" | "chat">("repositories");
-  const [chatRepositoryId, setChatRepositoryId] = useState<string>("");
+  const [selectedRepositoryId, setSelectedRepositoryId] = useState<string>("");
   const [chatMessages, setChatMessages] = useState<{role: string, text: string}[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -54,7 +54,6 @@ export default function ProjectDetailsPage() {
   const [batchMode, setBatchMode] = useState<"approve" | "reject">("approve");
   const [batchTargets, setBatchTargets] = useState<Issue[]>([]);
   const [batchResults, setBatchResults] = useState<{ id: string; title: string; ok: boolean; message: string }[] | null>(null);
-  const [changeRepositoryId, setChangeRepositoryId] = useState("");
   const [changeInstruction, setChangeInstruction] = useState("");
   const [changeLoading, setChangeLoading] = useState(false);
   const [changeProposals, setChangeProposals] = useState<Issue[]>([]);
@@ -90,8 +89,14 @@ export default function ProjectDetailsPage() {
     if (id) void load();
   }, [id]);
 
+  useEffect(() => {
+    if (selectedRepositoryId || !repositories.length) return;
+    const oldest = [...repositories].sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""))[0];
+    if (oldest) setSelectedRepositoryId(oldest.id);
+  }, [repositories, selectedRepositoryId]);
+
   async function requestChange() {
-    if (!changeRepositoryId || changeInstruction.trim().length < 3) return;
+    if (!selectedRepositoryId || changeInstruction.trim().length < 3) return;
     setChangeLoading(true);
     setChangeError(null);
     setChangeSummary(null);
@@ -99,7 +104,7 @@ export default function ProjectDetailsPage() {
     setChangePushed([]);
     setChangeRejected([]);
     try {
-      const result = await api.requestRepositoryChange(changeRepositoryId, changeInstruction.trim());
+      const result = await api.requestRepositoryChange(selectedRepositoryId, changeInstruction.trim());
       setChangeProposals(result.suggestions);
       setChangeSummary(result.summary);
       if (result.suggestions.length) {
@@ -175,6 +180,24 @@ export default function ProjectDetailsPage() {
           ? requestError.message
           : "Unable to refresh repository.",
       );
+    } finally {
+      setBusyRepository(null);
+    }
+  }
+
+  async function removeRepository(repositoryId: string) {
+    if (typeof window !== "undefined" && !window.confirm("Remove this repository from the project? Its analysis history will be deleted.")) return;
+    setBusyRepository(repositoryId);
+    setError(null);
+    setMessage(null);
+    try {
+      await api.deleteRepository(repositoryId);
+      setRepositories((current) => current.filter((item) => item.id !== repositoryId));
+      setSelectedRepositoryId((current) => (current === repositoryId ? "" : current));
+      setMessage("Repository removed from the project.");
+      await load();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to remove repository.");
     } finally {
       setBusyRepository(null);
     }
@@ -551,9 +574,9 @@ export default function ProjectDetailsPage() {
                   <div className="flex items-center gap-3">
                     <select
                       className="input w-64 !py-2 !text-sm bg-[#101827] border-[#1e2d4a]"
-                      value={chatRepositoryId}
+                      value={selectedRepositoryId}
                       onChange={(e) => {
-                        setChatRepositoryId(e.target.value);
+                        setSelectedRepositoryId(e.target.value);
                         setChatMessages([]);
                         setChatInput("");
                         setChatError(null);
@@ -566,13 +589,13 @@ export default function ProjectDetailsPage() {
                     <button
                       className="btn-secondary !py-2 !text-sm disabled:opacity-50"
                       title="Optional: builds a semantic search index. Chat works without it."
-                      disabled={!chatRepositoryId || indexing}
+                      disabled={!selectedRepositoryId || indexing}
                       onClick={async () => {
                         setIndexing(true);
                         setChatError(null);
                         setChatNotice(null);
                         try {
-                          await api.indexRepository(chatRepositoryId);
+                          await api.indexRepository(selectedRepositoryId);
                           setChatNotice("Semantic index is building in the background. You can keep chatting meanwhile.");
                         } catch (e) {
                           setChatError(e instanceof Error ? e.message : "Could not start indexing.");
@@ -601,7 +624,7 @@ export default function ProjectDetailsPage() {
                     {chatMessages.length === 0 ? (
                       <div className="flex h-full flex-col items-center justify-center text-center text-slate-500">
                         <p className="text-sm">
-                          {chatRepositoryId
+                          {selectedRepositoryId
                             ? "Ask a question about this repository to get started."
                             : "Select a repository above, then ask a question about its code."}
                         </p>
@@ -639,14 +662,14 @@ export default function ProjectDetailsPage() {
                       className="flex gap-3"
                       onSubmit={async (e) => {
                         e.preventDefault();
-                        if (!chatInput.trim() || !chatRepositoryId || chatLoading) return;
+                        if (!chatInput.trim() || !selectedRepositoryId || chatLoading) return;
                         const query = chatInput.trim();
                         setChatInput("");
                         setChatMessages(prev => [...prev, { role: 'user', text: query }]);
                         setChatLoading(true);
                         setChatError(null);
                         try {
-                          const res = await api.chatWithRepo(chatRepositoryId, query);
+                          const res = await api.chatWithRepo(selectedRepositoryId, query);
                           setChatMessages(prev => [...prev, { role: 'ai', text: res.answer }]);
                         } catch (e) {
                           setChatMessages(prev => [...prev, { role: 'ai', text: `Could not get an answer: ${e instanceof Error ? e.message : 'Unknown error'}` }]);
@@ -657,15 +680,15 @@ export default function ProjectDetailsPage() {
                       <input
                         type="text"
                         className="input flex-1 bg-[#152035]"
-                        placeholder={chatRepositoryId ? "Ask a question about the codebase..." : "Select a repository to start chatting"}
+                        placeholder={selectedRepositoryId ? "Ask a question about the codebase..." : "Select a repository to start chatting"}
                         value={chatInput}
                         onChange={(e) => setChatInput(e.target.value)}
-                        disabled={!chatRepositoryId || chatLoading}
+                        disabled={!selectedRepositoryId || chatLoading}
                       />
                       <button
                         type="submit"
                         className="btn-primary disabled:opacity-50"
-                        disabled={!chatInput.trim() || !chatRepositoryId || chatLoading}
+                        disabled={!chatInput.trim() || !selectedRepositoryId || chatLoading}
                       >
                         {chatLoading ? "Sending..." : "Send"}
                       </button>
@@ -685,8 +708,8 @@ export default function ProjectDetailsPage() {
                   </div>
                   <select
                     className="input w-64 !py-2 !text-sm bg-[#101827] border-[#1e2d4a]"
-                    value={changeRepositoryId}
-                    onChange={(e) => setChangeRepositoryId(e.target.value)}
+                    value={selectedRepositoryId}
+                    onChange={(e) => setSelectedRepositoryId(e.target.value)}
                   >
                     <option value="">Select a repository...</option>
                     {repositories.map((r) => <option key={r.id} value={r.id}>{r.full_name}</option>)}
@@ -699,11 +722,11 @@ export default function ProjectDetailsPage() {
                     placeholder="e.g. Add a /health endpoint and validate the request body"
                     value={changeInstruction}
                     onChange={(e) => setChangeInstruction(e.target.value)}
-                    disabled={!changeRepositoryId || changeLoading}
+                    disabled={!selectedRepositoryId || changeLoading}
                   />
                   <button
                     className="btn-primary"
-                    disabled={!changeRepositoryId || changeInstruction.trim().length < 3 || changeLoading}
+                    disabled={!selectedRepositoryId || changeInstruction.trim().length < 3 || changeLoading}
                     onClick={() => void requestChange()}
                   >
                     {changeLoading ? "Generating..." : "Generate Change"}
@@ -866,6 +889,14 @@ export default function ProjectDetailsPage() {
                                     Running...
                                   </span>
                                 ) : "Run Analysis"}
+                              </button>
+                              <button
+                                className="btn-danger !px-3 !py-1.5 !text-xs !rounded-lg"
+                                disabled={busyRepository === repository.id}
+                                onClick={() => void removeRepository(repository.id)}
+                                title="Remove this repository from the project"
+                              >
+                                Remove
                               </button>
                             </div>
                           </div>
@@ -1068,7 +1099,11 @@ export default function ProjectDetailsPage() {
             {/* ── Settings section ──────────────────────── */}
             {/* Insights section */}
             {activeSection === "insights" && (
-              <ProjectInsights repositories={repositories} />
+              <ProjectInsights
+                repositories={repositories}
+                repositoryId={selectedRepositoryId}
+                onRepositoryChange={setSelectedRepositoryId}
+              />
             )}
 
             {activeSection === "settings" && (

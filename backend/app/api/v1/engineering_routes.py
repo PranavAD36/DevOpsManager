@@ -50,7 +50,7 @@ from app.services.secret_detection import (
     redact_secrets,
     scan_and_exclude_secret_files,
 )
-from app.services.secret_notes import write_secret_note
+from app.services.secret_notes import collect_raw_lines, write_secret_note
 from app.services.secret_remediation import apply_secret_remediation, plan_secret_remediation
 
 router = APIRouter(tags=["engineering intelligence"])
@@ -329,7 +329,9 @@ async def scan_repository_secrets(
     except GitHubAppError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     findings: list[SecretFinding] = detect_secrets(files)
-    note_path = write_secret_note(repository.full_name, findings)
+    note_path = write_secret_note(
+        repository.full_name, findings, collect_raw_lines(files, findings)
+    )
     return SecretScanResponse(
         repository_id=repository.id,
         findings=[
@@ -373,19 +375,22 @@ async def remediate_repository_secrets(
     except GitHubAppError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     if actions:
-        write_secret_note(
-            repository.full_name,
-            [
-                SimpleNamespace(
-                    severity="critical",
-                    secret_type=action.secret_type,
-                    file_path=action.file_path,
-                    line_number=action.line_numbers[0] if action.line_numbers else 0,
-                    masked_value="************",
-                )
-                for action in actions
-            ],
-        )
+        remediation_findings = [
+            SimpleNamespace(
+                severity="critical",
+                secret_type=action.secret_type,
+                file_path=action.file_path,
+                line_number=action.line_numbers[0] if action.line_numbers else 0,
+                masked_value="************",
+            )
+            for action in actions
+        ]
+        remediation_raw_lines = {
+            (action.file_path, action.line_numbers[0]): action.raw_snippet
+            for action in actions
+            if action.line_numbers and action.raw_snippet
+        }
+        write_secret_note(repository.full_name, remediation_findings, remediation_raw_lines)
     return SecretRemediationResponse(
         repository_id=repository.id,
         applied=apply_changes,

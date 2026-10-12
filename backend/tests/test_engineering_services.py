@@ -98,11 +98,30 @@ def test_secret_detection_flags_env_files_and_inline_password_comments() -> None
     assert all("SK-1223654" not in finding.masked_value for finding in findings)
 
 
-def test_secret_note_is_written_and_git_ignored(tmp_path, monkeypatch) -> None:
+def test_secret_note_records_source_line_and_is_git_ignored(tmp_path, monkeypatch) -> None:
     gitignore = tmp_path / ".gitignore"
     gitignore.write_text("# existing\nnode_modules/\n", encoding="utf-8")
     monkeypatch.setattr(secret_notes, "NOTES_DIR", tmp_path / "backend" / "data" / "secret_notes")
     monkeypatch.setattr(secret_notes, "GITIGNORE_PATH", gitignore)
+    files = [SimpleNamespace(path="test.cpp", content="int main() {" + chr(10) + "//PassWord=Hello@123" + chr(10) + "}" + chr(10))]
+    findings = detect_secrets(files)
+
+    note_path = secret_notes.write_secret_note(
+        "PranavAD36/Testing-Repo", findings, secret_notes.collect_raw_lines(files, findings)
+    )
+
+    assert note_path is not None
+    note_text = (tmp_path / "backend" / "data" / "secret_notes" / "PranavAD36_Testing-Repo.txt").read_text(encoding="utf-8")
+    assert "PranavAD36/Testing-Repo" in note_text
+    assert "Testing-Repo/test.cpp" in note_text
+    assert "*PassWord" in note_text
+    assert "-> //PassWord=Hello@123" in note_text
+    assert "backend/data/secret_notes/" in gitignore.read_text(encoding="utf-8")
+
+
+def test_secret_note_falls_back_to_masked_value(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(secret_notes, "NOTES_DIR", tmp_path / "notes")
+    monkeypatch.setattr(secret_notes, "GITIGNORE_PATH", tmp_path / ".gitignore")
     findings = detect_secrets(
         [SimpleNamespace(path=".env", content="API_KEY=sk-abcdefghijklmnopqrstuvwx\n")]
     )
@@ -110,11 +129,9 @@ def test_secret_note_is_written_and_git_ignored(tmp_path, monkeypatch) -> None:
     note_path = secret_notes.write_secret_note("PranavAD36/Testing-Repo", findings)
 
     assert note_path is not None
-    note_text = (tmp_path / "backend" / "data" / "secret_notes" / "PranavAD36_Testing-Repo.txt").read_text(encoding="utf-8")
-    assert "PranavAD36/Testing-Repo" in note_text
-    assert ".env:1" in note_text
+    note_text = (tmp_path / "notes" / "PranavAD36_Testing-Repo.txt").read_text(encoding="utf-8")
+    assert "Testing-Repo/.env" in note_text
     assert "sk-abcdefghijklmnopqrstuvwx" not in note_text
-    assert "backend/data/secret_notes/" in gitignore.read_text(encoding="utf-8")
 
 
 def test_secret_note_is_skipped_when_nothing_found(tmp_path, monkeypatch) -> None:

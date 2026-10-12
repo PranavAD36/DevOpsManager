@@ -32,6 +32,7 @@ class RemediationAction:
     secret_type: str
     line_numbers: list[int]
     removed_snippet: str
+    raw_snippet: str = ""
     gitignore_entry: str | None = None
 
 
@@ -52,6 +53,13 @@ def _strip_lines(content: str, line_numbers: set[int]) -> str:
         return content
     trailing_newline = "\n" if content.endswith("\n") else ""
     return "\n".join(kept) + trailing_newline
+
+
+def _raw_snippet(content: str, line_numbers: list[int]) -> str:
+    """Original (unredacted) source lines, used only for the local git-ignored secret note."""
+    lines = content.splitlines()
+    picked = [lines[number - 1].strip() for number in line_numbers if 0 < number <= len(lines)]
+    return "\n".join(picked)
 
 
 def _snippet(content: str, line_numbers: list[int]) -> str:
@@ -91,6 +99,7 @@ async def plan_secret_remediation(repository: object, access_token: str, service
                     secret_type=items[0].secret_type,
                     line_numbers=line_numbers,
                     removed_snippet=_snippet(content, line_numbers),
+                    raw_snippet=_raw_snippet(content, line_numbers),
                     gitignore_entry=path,
                 )
             )
@@ -102,6 +111,7 @@ async def plan_secret_remediation(repository: object, access_token: str, service
                     secret_type=items[0].secret_type,
                     line_numbers=line_numbers,
                     removed_snippet=_snippet(content, line_numbers),
+                    raw_snippet=_raw_snippet(content, line_numbers),
                 )
             )
         if len(actions) >= MAX_ACTIONS:

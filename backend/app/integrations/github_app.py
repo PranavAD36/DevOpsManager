@@ -391,40 +391,57 @@ class GitHubAppService:
             "X-GitHub-Api-Version": "2022-11-28",
         }
 
+        params = {
+            "sort": "updated",
+            "per_page": 100,
+            "affiliation": "owner,collaborator,organization_member",
+            "visibility": "all",
+        }
+        repositories: list[GitHubAccessibleRepository] = []
+        page = 1
         try:
             async with httpx.AsyncClient(timeout=15.0, transport=self.transport) as client:
-                response = await client.get(
-                    f"{self.base_url}/user/repos?sort=updated&per_page=100",
-                    headers=headers,
-                )
+                while True:
+                    response = await client.get(
+                        f"{self.base_url}/user/repos",
+                        params={**params, "page": page},
+                        headers=headers,
+                    )
+                    if response.status_code == 401:
+                        raise GitHubAppError("Invalid or expired GitHub access token", 401)
+                    if response.is_error:
+                        raise GitHubAppError("Failed to fetch user GitHub repositories", 502)
+                    page_items = response.json()
+                    if not isinstance(page_items, list):
+                        break
+                    repositories.extend(
+                        GitHubAccessibleRepository(
+                            id=int(item["id"]),
+                            name=str(item["name"]),
+                            full_name=str(item["full_name"]),
+                            owner=str(item["owner"]["login"]),
+                            private=bool(item.get("private", False)),
+                            default_branch=str(item.get("default_branch") or "main"),
+                            html_url=str(item["html_url"]),
+                            description=item.get("description"),
+                            language=item.get("language"),
+                            stargazers_count=int(item.get("stargazers_count", 0)),
+                            forks_count=int(item.get("forks_count", 0)),
+                            permissions=item.get("permissions"),
+                        )
+                        for item in page_items
+                    )
+                    if len(page_items) < 100:
+                        break
+                    page += 1
+                    if page > 10:
+                        break
         except httpx.TimeoutException as exc:
             raise GitHubAppError("GitHub request timed out", 504) from exc
         except httpx.HTTPError as exc:
             raise GitHubAppError("GitHub request failed", 502) from exc
 
-        if response.status_code == 401:
-            raise GitHubAppError("Invalid or expired GitHub access token", 401)
-        if response.is_error:
-            raise GitHubAppError("Failed to fetch user GitHub repositories", 502)
-
-        data = response.json()
-        return [
-            GitHubAccessibleRepository(
-                id=int(item["id"]),
-                name=str(item["name"]),
-                full_name=str(item["full_name"]),
-                owner=str(item["owner"]["login"]),
-                private=bool(item.get("private", False)),
-                default_branch=str(item.get("default_branch") or "main"),
-                html_url=str(item["html_url"]),
-                description=item.get("description"),
-                language=item.get("language"),
-                stargazers_count=int(item.get("stargazers_count", 0)),
-                forks_count=int(item.get("forks_count", 0)),
-                permissions=item.get("permissions"),
-            )
-            for item in data
-        ]
+        return repositories
 
     async def get_repository_source_files(
         self,

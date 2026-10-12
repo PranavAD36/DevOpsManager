@@ -83,8 +83,22 @@ function runsTable(runs: WorkflowRun[]) {
   );
 }
 
-export default function ProjectInsights({ repositories }: { repositories: Repository[] }) {
-  const [repositoryId, setRepositoryId] = useState("");
+export default function ProjectInsights({
+  repositories,
+  repositoryId: controlledRepositoryId,
+  onRepositoryChange,
+}: {
+  repositories: Repository[];
+  repositoryId?: string;
+  onRepositoryChange?: (id: string) => void;
+}) {
+  const [repositoryId, setRepositoryId] = useState(controlledRepositoryId ?? "");
+
+  useEffect(() => {
+    if (controlledRepositoryId && controlledRepositoryId !== repositoryId) {
+      setRepositoryId(controlledRepositoryId);
+    }
+  }, [controlledRepositoryId, repositoryId]);
   const orderedRepositories = useMemo(
     () => [...repositories].sort((a, b) => (a.created_at || "").localeCompare(b.created_at || "")),
     [repositories],
@@ -115,10 +129,6 @@ export default function ProjectInsights({ repositories }: { repositories: Reposi
   const [securityFindings, setSecurityFindings] = useState<SecurityReviewFinding[] | null>(null);
   const [reviewingSecurity, setReviewingSecurity] = useState(false);
   const [securityError, setSecurityError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!repositoryId && orderedRepositories[0]) setRepositoryId(orderedRepositories[0].id);
-  }, [orderedRepositories, repositoryId]);
 
   useEffect(() => {
     if (!repositoryId) return;
@@ -263,7 +273,10 @@ export default function ProjectInsights({ repositories }: { repositories: Reposi
         <select
           className="form-select !py-1.5 !text-xs !rounded-lg"
           value={repositoryId}
-          onChange={(event) => setRepositoryId(event.target.value)}
+          onChange={(event) => {
+            setRepositoryId(event.target.value);
+            onRepositoryChange?.(event.target.value);
+          }}
         >
           {orderedRepositories.map((repo) => (
             <option key={repo.id} value={repo.id}>
@@ -469,10 +482,10 @@ export default function ProjectInsights({ repositories }: { repositories: Reposi
                 </ul>
                 <div className="mt-3 flex items-center gap-2">
                   <button className="btn-accent !py-2 !px-4 !text-xs" disabled={remediating} onClick={() => void applyRemediation()}>
-                    {remediating ? "Pushing..." : "Approve & Push"}
+                    {remediating ? "Pushing..." : "Approve All & Push"}
                   </button>
-                  <button className="btn-secondary !py-2 !px-4 !text-xs" disabled={remediating} onClick={() => setRemediationActions(null)}>
-                    Cancel
+                  <button className="btn-danger !py-2 !px-4 !text-xs" disabled={remediating} onClick={() => setRemediationActions(null)}>
+                    Reject All
                   </button>
                 </div>
               </>
