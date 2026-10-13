@@ -72,21 +72,36 @@ export default function EngineeringPage() {
 
   useEffect(() => {
     if (!projectId) return;
+    let cancelled = false;
     setLoading(true);
     setTrendsError(null);
     setRepoHealth(null);
     setHealthBreakdown(null);
-    Promise.all([
-      api.listRepositories(projectId),
-      api.getEngineeringTrends(projectId, days, repositoryFilter || undefined),
-    ])
-      .then(([repoItems, trendData]) => {
+    setReport(null);
+    setReportError(null);
+    setHealthError(null);
+    (async () => {
+      try {
+        const repoItems = await api.listRepositories(projectId);
+        if (cancelled) return;
         setRepositories(repoItems);
-        setTrends(trendData);
+        // Only query a repository that actually belongs to the selected project; a stale
+        // selection from a previous project would otherwise trigger "Repository not found".
+        const validFilter = repoItems.some((repo) => repo.id === repositoryFilter) ? repositoryFilter : "";
+        if (validFilter !== repositoryFilter) setRepositoryFilter(validFilter);
         setHealthRepositoryId((current) => (repoItems.some((repo) => repo.id === current) ? current : ""));
-      })
-      .catch((requestError) => setTrendsError(requestError instanceof Error ? requestError.message : "Unable to load engineering trends."))
-      .finally(() => setLoading(false));
+        const trendData = await api.getEngineeringTrends(projectId, days, validFilter || undefined);
+        if (cancelled) return;
+        setTrends(trendData);
+      } catch (requestError) {
+        if (!cancelled) setTrendsError(requestError instanceof Error ? requestError.message : "Unable to load engineering trends.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [projectId, days, repositoryFilter]);
 
   useEffect(() => {
@@ -125,12 +140,13 @@ export default function EngineeringPage() {
     setReportLoading(true);
     setReportError(null);
     try {
+      const targetRepo = repositories.some((repo) => repo.id === repositoryFilter) ? repositoryFilter : "";
       const data = await api.getEngineeringReport(
         projectId,
         reportPeriod,
         reportPeriod === "custom" ? customStart : undefined,
         reportPeriod === "custom" ? customEnd : undefined,
-        repositoryFilter || undefined,
+        targetRepo || undefined,
       );
       setReport(data);
     } catch (requestError) {
@@ -142,6 +158,11 @@ export default function EngineeringPage() {
 
   async function checkRepositoryHealth() {
     if (!healthRepositoryId) return;
+    if (!repositories.some((repo) => repo.id === healthRepositoryId)) {
+      setHealthRepositoryId("");
+      setHealthError("That repository is no longer available. Pick another one from the list.");
+      return;
+    }
     setHealthLoading(true);
     setHealthError(null);
     try {
@@ -170,6 +191,11 @@ export default function EngineeringPage() {
 
   async function generateHealthSuggestions() {
     if (!healthRepositoryId) return;
+    if (!repositories.some((repo) => repo.id === healthRepositoryId)) {
+      setHealthRepositoryId("");
+      setSuggestionError("That repository is no longer available. Pick another one from the list.");
+      return;
+    }
     setSuggestionLoading(true);
     setSuggestionError(null);
     setHealthSummary(null);

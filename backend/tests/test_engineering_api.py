@@ -111,6 +111,26 @@ def test_code_health_is_unavailable_before_first_completed_analysis() -> None:
     assert response.json()["score"] is None
 
 
+def test_trends_reject_repository_from_another_project() -> None:
+    with TestClient(app) as client:
+        project_id, repository_id = _create_project_and_repository(client)
+        _, other_repository_id = _create_project_and_repository(client)
+
+        own = client.get(
+            f"/v1/projects/{project_id}/trends",
+            params={"days": 30, "repository_id": repository_id},
+            headers=TEST_HEADERS,
+        )
+        assert own.status_code == 200
+
+        mismatch = client.get(
+            f"/v1/projects/{project_id}/trends",
+            params={"days": 30, "repository_id": other_repository_id},
+            headers=TEST_HEADERS,
+        )
+        assert mismatch.status_code == 404
+
+
 def test_secret_scan_returns_only_masked_findings() -> None:
     raw_token = "ghp_" + "C" * 30
     with patch.object(

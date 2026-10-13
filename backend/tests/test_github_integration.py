@@ -96,6 +96,35 @@ def test_connect_duplicate_refresh_and_analysis_requires_github_auth(monkeypatch
             assert client.delete(f"/v1/projects/{project_id}", headers=AUTH_HEADERS).status_code == 204
 
 
+def test_connect_same_repository_across_projects_moves_instead_of_duplicating(monkeypatch) -> None:
+    AUTH_HEADERS = {"Authorization": "Bearer mock_token_test"}
+
+    async def fake_metadata(owner: str, repo: str, access_token: str | None = None) -> GitHubRepositoryMetadata:
+        return metadata()
+
+    monkeypatch.setattr(core_routes.github_client, "get_repository_metadata", fake_metadata)
+    with TestClient(app) as client:
+        project_a = client.post("/v1/projects", json={"name": f"Move A {uuid4()}"}, headers=AUTH_HEADERS).json()
+        project_b = client.post("/v1/projects", json={"name": f"Move B {uuid4()}"}, headers=AUTH_HEADERS).json()
+        try:
+            first = client.post(f"/v1/projects/{project_a['id']}/repositories/connect", json={"url": "https://github.com/octocat/hello-world"}, headers=AUTH_HEADERS)
+            assert first.status_code == 201
+            repository_id = first.json()["id"]
+
+            moved = client.post(f"/v1/projects/{project_b['id']}/repositories/connect", json={"url": "https://github.com/octocat/hello-world"}, headers=AUTH_HEADERS)
+            assert moved.status_code == 200
+            assert moved.json()["id"] == repository_id
+            assert moved.json()["project_id"] == project_b["id"]
+
+            repos_a = client.get(f"/v1/projects/{project_a['id']}/repositories", headers=AUTH_HEADERS).json()
+            repos_b = client.get(f"/v1/projects/{project_b['id']}/repositories", headers=AUTH_HEADERS).json()
+            assert repos_a == []
+            assert [repo["id"] for repo in repos_b] == [repository_id]
+        finally:
+            client.delete(f"/v1/projects/{project_a['id']}", headers=AUTH_HEADERS)
+            client.delete(f"/v1/projects/{project_b['id']}", headers=AUTH_HEADERS)
+
+
 def test_github_not_found_and_missing_project(monkeypatch) -> None:
     AUTH = {"Authorization": "Bearer test-token"}
     async def missing_metadata(owner: str, repo: str, access_token: str | None = None) -> GitHubRepositoryMetadata:

@@ -167,9 +167,10 @@ async def connect_github_repository(
     except GitHubIntegrationError as exc:
         raise github_error(exc) from exc
 
+    # A repository is unique per account: reuse the existing row (moving it into this project)
+    # instead of inserting a duplicate copy of the same GitHub repository.
     repository = await session.scalar(
         select(Repository).where(
-            Repository.project_id == project_id,
             Repository.github_account_id == github_account.id,
             Repository.provider == "github",
             Repository.full_name == metadata.full_name,
@@ -179,6 +180,8 @@ async def connect_github_repository(
         repository = Repository(project_id=project_id, github_account_id=github_account.id, owner=metadata.owner, name=metadata.name, full_name=metadata.full_name, url=metadata.html_url)
         session.add(repository)
         response.status_code = status.HTTP_201_CREATED
+    elif repository.project_id != project_id:
+        repository.project_id = project_id
     apply_github_metadata(repository, metadata)
     await session.commit()
     await session.refresh(repository)
